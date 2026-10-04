@@ -74,7 +74,7 @@ export default function VisualizerPanel({ sceneRef: externalSceneRef }) {
         ) : (
           <span className="hint">drop a .nc/.gcode file or</span>
         )}
-        <span className="hint">shift+drag = region select</span>
+        <span className="hint">shift+drag = region · ctrl+drag or right-drag = pan · wheel = zoom</span>
         <span className="spacer" />
         {job && (
           <span className="view-buttons">

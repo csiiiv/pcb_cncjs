@@ -403,6 +403,12 @@ export class ToolpathScene {
         this.#regionRect = null;
         return;
       }
+      if (e.button === 0 && (e.ctrlKey || e.metaKey)) {
+        // Ctrl/Cmd+LMB: pan (trackpad/single-button friendly)
+        this.orbit.panning = true;
+        this.orbit.last = { x: e.clientX, y: e.clientY };
+        return;
+      }
       if (e.button === 0) this.#maybeSelect(e);
       this.orbit.panning = e.button === 2 || e.button === 1;
       this.orbit.last = { x: e.clientX, y: e.clientY };
@@ -417,12 +423,16 @@ export class ToolpathScene {
       const dy = e.clientY - this.orbit.last.y;
       this.orbit.last = { x: e.clientX, y: e.clientY };
       if (this.orbit.panning) {
+        // pan: translate camera AND target together (screen-space drag → world)
         const dist = this.camera.position.distanceTo(this.orbit.target);
         const scale = dist * 0.0015;
         const right = new THREE.Vector3().setFromMatrixColumn(this.camera.matrix, 0);
         const up = new THREE.Vector3().setFromMatrixColumn(this.camera.matrix, 1);
-        this.orbit.target.addScaledVector(right, -dx * scale);
-        this.orbit.target.addScaledVector(up, dy * scale);
+        const delta = new THREE.Vector3()
+          .addScaledVector(right, -dx * scale)
+          .addScaledVector(up, dy * scale);
+        this.camera.position.add(delta);
+        this.orbit.target.add(delta);
       } else {
         const offset = this.camera.position.clone().sub(this.orbit.target);
         const sph = new THREE.Spherical().setFromVector3(offset);
