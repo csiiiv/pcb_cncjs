@@ -176,6 +176,12 @@ function StatusPanel() {
     ['Units', snap.modal?.units ?? '—'],
     ['Distance mode', snap.modal?.distance ?? '—'],
     ['WCS', snap.modal?.wcs ?? '—'],
+    [
+      'WCO (G54 offset)',
+      snap.wco
+        ? `X ${snap.wco.x ?? '—'}  Y ${snap.wco.y ?? '—'}  Z ${snap.wco.z ?? '—'}`
+        : '—'
+    ],
     ['Feed', snap.feedrate ?? '—'],
     ['Pin state', snap.pinState ?? '—']
   ];
@@ -238,12 +244,18 @@ export default function App() {
   const snap = useMachineState();
   const [increment, setIncrement] = useState(1);
 
-  // cmds facade: machine commands + UI state (selected increment) in one object
+  // Explicit delegation — do NOT spread the class instance (methods live on
+  // the prototype and would be lost).
   const cmds = {
-    ...machineCommands,
+    jog: (params) => machineCommands.jog({ ...params, distance: increment }),
+    unlock: () => machineCommands.unlock(),
+    reset: () => machineCommands.reset(),
+    jogCancel: () => machineCommands.jogCancel(),
+    zeroAxis: (axis) => machineCommands.zeroAxis(axis),
+    zeroXY: () => machineCommands.zeroXY(),
+    zeroAll: () => machineCommands.zeroAll(),
     increment,
-    setIncrement,
-    jog: (params) => machineCommands.jog({ ...params, distance: increment })
+    setIncrement
   };
 
   return (
