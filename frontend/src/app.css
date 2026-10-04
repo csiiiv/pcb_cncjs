@@ -308,6 +308,42 @@ button.toggle.on { border-color: var(--accent); color: var(--accent); background
 
 /* Console */
 .console-widget { display: flex; flex-direction: column; }
+
+/* Job Runner */
+.run-controls { display: flex; gap: 10px; align-items: center; padding: 8px 0; }
+.run-btn {
+  font-size: 14px !important;
+  font-weight: 600;
+  padding: 8px 22px !important;
+  border-color: var(--ok) !important;
+  color: var(--ok) !important;
+  letter-spacing: 0.5px;
+}
+.run-btn.armed {
+  background: rgba(62, 207, 142, 0.15) !important;
+  animation: pulse 0.7s infinite alternate;
+}
+.run-btn:disabled { border-color: var(--panel-edge) !important; color: var(--muted) !important; }
+.run-progress { margin-top: 6px; }
+.progress-bar {
+  height: 8px;
+  background: #0b0e13;
+  border: 1px solid var(--panel-edge);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.3s;
+}
+.progress-stats {
+  display: flex;
+  gap: 14px;
+  margin-top: 4px;
+  font-size: 12px;
+  font-family: var(--mono);
+}
 .console {
   background: #0b0e13; border: 1px solid var(--panel-edge); border-radius: 8px;
   font-family: var(--mono); font-size: 12px;

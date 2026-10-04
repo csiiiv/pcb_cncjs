@@ -6,3 +6,4 @@ export { default as MachineControlsWidget } from './MachineControlsWidget.jsx';
 export { default as VisualizerWidget } from './VisualizerWidget.jsx';
 export { default as GcodePreviewWidget } from './GcodePreviewWidget.jsx';
 export { default as ConsoleWidget } from './ConsoleWidget.jsx';
+export { default as JobRunnerWidget } from './JobRunnerWidget.jsx';

@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ConnectionWidget, DroWidget, StatusWidget, MachineControlsWidget,
-  VisualizerWidget, GcodePreviewWidget, ConsoleWidget
+  VisualizerWidget, GcodePreviewWidget, ConsoleWidget, JobRunnerWidget
 } from './widgets/index.js';
 
 const WIDGETS = {
@@ -14,13 +14,14 @@ const WIDGETS = {
   controls: { title: 'Machine Controls', component: MachineControlsWidget },
   visualizer: { title: 'Toolpath', component: VisualizerWidget },
   gcode: { title: 'G-code', component: GcodePreviewWidget },
+  runner: { title: 'Job Runner', component: JobRunnerWidget },
   console: { title: 'Console', component: ConsoleWidget }
 };
 
 const DEFAULT_LAYOUT = {
   left: ['connection', 'dro', 'status'],
   center: ['visualizer', 'gcode'],
-  right: ['controls', 'console']
+  right: ['controls', 'runner', 'console']
 };
 
 const STORAGE_KEY = 'pcb-cnc-layout-v1';

@@ -27,6 +27,8 @@ const initialSnapshot = () => ({
   spindle: null,
   // Workflow
   workflowState: null,
+  // Sender (job execution)
+  sender: null, // { name, total, sent, received, startTime, elapsedTime, remainingTime, ... }
   // Raw console lines (serialport:read), newest last
   consoleLines: []
 });
@@ -110,6 +112,8 @@ export function createMachineStateStore() {
       });
 
       connection.on('workflow:state', (workflowState) => commit({ workflowState }));
+
+      connection.on('sender:status', (sender) => commit({ sender: sender || null }));
 
       connection.on('serialport:read', (line) => pushConsole(String(line)));
     }

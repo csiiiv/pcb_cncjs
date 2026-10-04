@@ -1,12 +1,15 @@
 // Step-through G-code preview (job/selection via viz store).
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useViz } from '../visualizer/vizStore.js';
+import { useMachineState } from '../cnc/runtime.js';
 
 export default function GcodePreviewWidget() {
   const v = useViz();
+  const snap = useMachineState();
   const job = v.job;
   const [activeLine, setActiveLine] = useState(null);
   const [followSelection, setFollowSelection] = useState(true);
+  const [followRun, setFollowRun] = useState(true);
   const listRef = useRef(null);
 
   const lines = useMemo(() => {
@@ -34,14 +37,24 @@ export default function GcodePreviewWidget() {
     }
   }, [v.selection, followSelection]);
 
+  // live run tracking: sender's current line -> active line + 3D cursor
+  const sentLine = snap.sender?.sent ?? 0;
+  const workflowRunning = snap.workflowState === 'running';
+  useEffect(() => {
+    if (!followRun || !workflowRunning || !job || !sentLine) return;
+    const text = job.text.split(/\r?\n/)[sentLine - 1];
+    if (text !== undefined) setActiveLine(sentLine);
+  }, [sentLine, workflowRunning, followRun, job]);
+
   useEffect(() => {
     if (activeLine == null) return;
     const entry = lines.find((l) => l.lineNo === activeLine);
     if (entry?.segs) v.scene?.setPreviewCursor(entry.segs, entry.segs[entry.segs.length - 1].end);
     else v.scene?.setPreviewCursor(null);
     const el = listRef.current?.querySelector(`[data-line="${activeLine}"]`);
-    el?.scrollIntoView({ block: 'nearest' });
-  }, [activeLine, lines]);
+    if (el && followRun && workflowRunning) el.scrollIntoView({ block: 'center' });
+    else el?.scrollIntoView({ block: 'nearest' });
+  }, [activeLine, lines, followRun, workflowRunning]);
 
   useEffect(() => {
     if (!job) return undefined;
@@ -78,6 +91,10 @@ export default function GcodePreviewWidget() {
           ↑/↓ step · click line = show in 3D{activeLine != null ? ` · line ${activeLine}` : ''}
         </span>
         <span className="spacer" />
+        <label className="hint">
+          <input type="checkbox" checked={followRun} onChange={(e) => setFollowRun(e.target.checked)} />
+          follow run
+        </label>
         <label className="hint">
           <input type="checkbox" checked={followSelection} onChange={(e) => setFollowSelection(e.target.checked)} />
           follow 3D selection
