@@ -33,11 +33,12 @@ const initialSnapshot = () => ({
   execLine: null,
   // Job g-code lines (for the simulated console feed + viewer fallback)
   jobGcodeLines: [],
-  // Raw console lines (serialport:read/write), newest last
+  // Raw console lines (serialport:read/write), newest last — ring-buffered
   consoleLines: []
 });
 
-const MAX_CONSOLE_LINES = 200;
+const MAX_CONSOLE_LINES = 1000; // user-facing cap; old entries trimmed as new arrive
+const CONSOLE_FLUSH_MS = 50;    // batch commits: ≤20 renders/s under ack storms
 
 export function createMachineStateStore() {
   let snapshot = initialSnapshot();
@@ -48,10 +49,26 @@ export function createMachineStateStore() {
     listeners.forEach((l) => l(snapshot));
   };
 
-  const pushConsole = (line) => {
-    const lines = [...snapshot.consoleLines, line];
+  // Batched console push: real events can arrive in ack storms (100+/s during
+  // runs); committing per-line would re-render the whole tree per event.
+  // Buffer + flush on a 50ms cadence instead, trimming to the ring cap.
+  let consolePending = [];
+  let consoleFlushTimer = null;
+
+  const flushConsole = () => {
+    consoleFlushTimer = null;
+    if (!consolePending.length) return;
+    const lines = [...snapshot.consoleLines, ...consolePending];
     if (lines.length > MAX_CONSOLE_LINES) lines.splice(0, lines.length - MAX_CONSOLE_LINES);
+    consolePending = [];
     commit({ consoleLines: lines });
+  };
+
+  const pushConsole = (entry) => {
+    consolePending.push(entry);
+    if (!consoleFlushTimer) {
+      consoleFlushTimer = setTimeout(flushConsole, CONSOLE_FLUSH_MS);
+    }
   };
 
   // Interpolated job-line console feed. The server's sender bypasses
@@ -198,7 +215,18 @@ export function createMachineStateStore() {
         }
       });
 
-      connection.on('serialport:read', (line) => pushConsole({ dir: 'in', text: String(line) }));
+      connection.on('serialport:read', (line) => {
+        const text = String(line);
+        pushConsole({ dir: 'in', text });
+        // Real per-line ack from the fork patch: "> G1 X10 (ln=47)" = GRBL
+        // finished line 47. Real data always wins over the interpolated feed.
+        const m = /^> .+\(ln=(\d+)\)$/.exec(text);
+        if (m) {
+          const ln = Number(m[1]);
+          stopJobFeed(); // real acks flowing — interpolation is redundant
+          commit({ execLine: ln });
+        }
+      });
       connection.on('serialport:write', (data) =>
         pushConsole({ dir: 'out', text: String(data).replace(/\n$/, '') }));
     }
