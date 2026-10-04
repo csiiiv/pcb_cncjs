@@ -120,16 +120,12 @@ export default function DockShell() {
     e.preventDefault();
     e.stopPropagation();
     const startY = e.clientY;
-    const startH = heights[id] ?? null; // null = auto
+    // capture the base ONCE (slot height incl. handle+grip) — never re-measure
+    // during the drag, otherwise set-height → re-measure → set-height compounds
+    const slotEl = document.querySelector(`.widget-slot[data-widget="${id}"]`);
+    const baseH = heights[id] ?? (slotEl ? slotEl.getBoundingClientRect().height : 200);
     const onMove = (ev) => {
-      if (startH == null) {
-        // first drag from auto: measure current height, then apply delta
-        const el = document.querySelector(`.widget-slot[data-widget="${id}"] .widget-body`);
-        const base = el ? el.offsetHeight : 200;
-        setHeights((h) => ({ ...h, [id]: Math.max(90, base + (ev.clientY - startY)) }));
-      } else {
-        setHeights((h) => ({ ...h, [id]: Math.max(90, startH + (ev.clientY - startY)) }));
-      }
+      setHeights((h) => ({ ...h, [id]: Math.max(90, Math.round(baseH + (ev.clientY - startY))) }));
     };
     const onUp = () => {
       window.removeEventListener('mousemove', onMove);
