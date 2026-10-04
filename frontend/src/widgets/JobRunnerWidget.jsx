@@ -34,7 +34,6 @@ export default function JobRunnerWidget() {
       if (!v.job) throw new Error('no job loaded in the visualizer');
       const status = await jobRunner.load(v.job.name, v.job.text);
       setLoaded({ name: v.job.name, total: status?.total ?? 0 });
-      store.setJobGcode(v.job.text.split(/\r?\n/)); // for the console job-feed
     } catch (err) {
       setError(err.message);
     }
