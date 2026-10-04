@@ -119,6 +119,8 @@ body {
 }
 .widget-close:hover { color: var(--alarm); }
 .widget-body { padding: 10px 12px; overflow: auto; flex: 1; min-height: 0; }
+.widget-body-flex { display: flex; flex-direction: column; }
+.widget-body-flex > .viz-widget { flex: 1; min-height: 0; }
 .widget-body section.widget, .widget-body .widget { all: unset; display: block; width: 100%; }
 
 .widget-resize-grip {

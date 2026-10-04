@@ -604,16 +604,24 @@ export class ToolpathScene {
   #previewLineObjs = [];
   #orbitUnbind = null;
   #onResize = null;
+  #resizeObserver = null;
   #regionStart = null;
   #regionRect = null;
   #bindEvents() {
     this.#onResize = () => this.resize();
     window.addEventListener('resize', this.#onResize);
+    // container-driven resizes: widget height grip, sidebar width gutters, dock
+    // layout changes — none of these fire window:resize, but all change the
+    // canvas box; observe the container so the renderer stays crisp 1:1
+    this.#resizeObserver = new ResizeObserver(() => this.resize());
+    this.#resizeObserver.observe(this.container);
   }
   #unbindEvents() {
     this.#orbitUnbind?.();
     this.#orbitUnbind = null;
     if (this.#onResize) window.removeEventListener('resize', this.#onResize);
+    this.#resizeObserver?.disconnect();
+    this.#resizeObserver = null;
   }
 
   #animate = () => {

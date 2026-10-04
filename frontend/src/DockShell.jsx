@@ -12,7 +12,7 @@ const WIDGETS = {
   dro: { title: 'DRO', component: DroWidget },
   status: { title: 'Status', component: StatusWidget },
   controls: { title: 'Machine Controls', component: MachineControlsWidget },
-  visualizer: { title: 'Toolpath', component: VisualizerWidget, grow: true },
+  visualizer: { title: 'Toolpath', component: VisualizerWidget, grow: true, flex: true },
   gcode: { title: 'G-code', component: GcodePreviewWidget, grow: true },
   runner: { title: 'Job Runner', component: JobRunnerWidget },
   console: { title: 'Console', component: ConsoleWidget, grow: true }
@@ -181,6 +181,8 @@ export default function DockShell() {
               style={heights[id] ? { height: heights[id], flex: '0 0 auto' } : undefined}
               onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget({ zone, index: i }); }}
             >
+              {/* visualizer flexes to fill unset space in the center column;
+                  other widgets size to content (or their set height) */}
               <div
                 className="widget-drag-handle"
                 draggable
@@ -192,7 +194,10 @@ export default function DockShell() {
                 <span className="widget-title">{W.title}</span>
                 <button className="widget-close" onClick={() => closeWidget(id)} title="close widget">×</button>
               </div>
-              <div className="widget-body" style={heights[id] ? { overflow: 'auto' } : undefined}>
+              <div
+                className={`widget-body ${W.flex ? 'widget-body-flex' : ''}`}
+                style={heights[id] ? { overflow: 'auto' } : undefined}
+              >
                 <W.component />
               </div>
               <div
