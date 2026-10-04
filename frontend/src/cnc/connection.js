@@ -14,6 +14,13 @@ export class CNCConnection {
     this.socket = null;
     this.token = null;
     this.eventHandlers = {};
+    this._connectedPort = null;
+  }
+
+  // The currently open machine port, mirrored from serialport:open/close events.
+  // MachineCommands reads this to route 'command' emits to the right port.
+  get connectedPort() {
+    return this._connectedPort;
   }
 
   on(event, handler) {
@@ -29,6 +36,10 @@ export class CNCConnection {
 
   #emitLocal(event, ...args) {
     (this.eventHandlers[event] || []).forEach((h) => h(...args));
+  }
+
+  #setConnectedPort(port) {
+    this._connectedPort = port;
   }
 
   async #signin() {
@@ -62,7 +73,10 @@ export class CNCConnection {
       transports: ['websocket']
     });
 
-    this.socket.on('connect', () => this.#emitLocal('state', ConnectionState.CONNECTED));
+    this.socket.on('connect', () => {
+      this.#setConnectedPort(null); // fresh socket: port linkage must be re-established
+      this.#emitLocal('state', ConnectionState.CONNECTED);
+    });
     this.socket.on('disconnect', () => this.#emitLocal('state', ConnectionState.DISCONNECTED));
     this.socket.on('connect_error', (err) => this.#emitLocal('error', err));
 
@@ -79,6 +93,7 @@ export class CNCConnection {
     this.socket?.close();
     this.socket = null;
     this.token = null;
+    this.#setConnectedPort(null);
     this.#emitLocal('state', ConnectionState.DISCONNECTED);
   }
 
@@ -94,7 +109,10 @@ export class CNCConnection {
       if (!this.socket) return reject(new Error('not connected'));
       this.socket.emit('open', port, { baudrate, controllerType }, (err) => {
         if (err) reject(err);
-        else resolve();
+        else {
+          this.#setConnectedPort(port);
+          resolve();
+        }
       });
     });
   }
@@ -104,7 +122,10 @@ export class CNCConnection {
       if (!this.socket) return reject(new Error('not connected'));
       this.socket.emit('close', port, (err) => {
         if (err) reject(err);
-        else resolve();
+        else {
+          if (this._connectedPort === port) this.#setConnectedPort(null);
+          resolve();
+        }
       });
     });
   }

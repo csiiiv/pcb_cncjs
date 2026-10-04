@@ -166,6 +166,48 @@ table.kv tr:last-child td { border-bottom: none; }
 
 /* Console */
 .console-panel { grid-column: 1 / -1; }
+
+/* Jog cluster */
+.jog-cluster {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 12px 0;
+  flex-wrap: wrap;
+}
+.jog-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 52px);
+  grid-template-rows: repeat(3, 40px);
+  gap: 6px;
+}
+.jog-grid button, .jog-z button {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 600;
+}
+.jog-z { display: flex; flex-direction: column; gap: 6px; width: 52px; }
+.jog-z button { height: 40px; }
+.jog-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 11px;
+  font-family: var(--mono);
+}
+.jog-stop {
+  border-color: var(--alarm) !important;
+  color: var(--alarm) !important;
+  margin-left: auto;
+}
+
+button.toggle { padding: 5px 8px; }
+button.toggle.on {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(79, 156, 249, 0.1);
+}
 .console {
   background: #0b0e13;
   border: 1px solid var(--panel-edge);

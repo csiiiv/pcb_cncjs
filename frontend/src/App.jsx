@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { CNCConnection, ConnectionState } from './cnc/connection.js';
 import { createMachineStateStore, fmtAxis, stateColor } from './cnc/state.js';
+import { MachineCommands } from './cnc/commands.js';
+import MachineControls from './machine/MachineControls.jsx';
 import './app.css';
 
 const connection = new CNCConnection({ serverUrl: '' }); // same-origin via Vite proxy
 const store = createMachineStateStore();
 store.bind(connection);
+const machineCommands = new MachineCommands(connection);
 
 function useMachineState() {
   return useSyncExternalStore(store.subscribe, store.getSnapshot);
@@ -233,12 +236,21 @@ function Console() {
 
 export default function App() {
   const snap = useMachineState();
+  const [increment, setIncrement] = useState(1);
+
+  // cmds facade: machine commands + UI state (selected increment) in one object
+  const cmds = {
+    ...machineCommands,
+    increment,
+    setIncrement,
+    jog: (params) => machineCommands.jog({ ...params, distance: increment })
+  };
 
   return (
     <div className="app">
       <header className="app-header">
         <h1>PCB CNC</h1>
-        <span className="tag">Phase 1 — read-only</span>
+        <span className="tag">Phase 2 — basic controls</span>
         <span className={`tag ${stateColor(snap.activeState)}`}>
           {snap.connectedPort ? snap.activeState ?? '—' : 'port closed'}
         </span>
@@ -247,6 +259,11 @@ export default function App() {
         <ConnectionPanel />
         <DRO />
         <StatusPanel />
+        <MachineControls
+          cmds={cmds}
+          enabled={Boolean(snap.connectedPort)}
+          activeState={snap.activeState}
+        />
         <Console />
       </main>
     </div>
