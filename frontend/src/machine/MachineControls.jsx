@@ -76,8 +76,9 @@ export default function MachineControls({ cmds, enabled, activeState }) {
         <span className="label">Zero (G54)</span>
         <button disabled={!enabled} onClick={() => cmds.zeroAxis('X')}>Zero X</button>
         <button disabled={!enabled} onClick={() => cmds.zeroAxis('Y')}>Zero Y</button>
-        <button disabled={!enabled} onClick={() => cmds.zeroXY()}>Zero XY</button>
         <button disabled={!enabled} onClick={() => cmds.zeroAxis('Z')}>Zero Z</button>
+        <button disabled={!enabled} onClick={() => cmds.zeroXY()}>Zero XY</button>
+        <button disabled={!enabled} onClick={() => cmds.zeroAll()}>Zero XYZ</button>
       </div>
 
       {alarm && (
