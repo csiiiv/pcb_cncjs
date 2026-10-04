@@ -1,5 +1,4 @@
-// Phase 3 visualizer panel: load a .nc file, parse, render, inspect.
-// Selecting a segment shows its full metadata chain (path → segment → source line).
+// Phase 3/4 visualizer panel: load, render, select, and control visibility.
 import { useEffect, useRef, useState } from 'react';
 import { parseGcode, pathLength } from '../jobs/parseGcode.js';
 import ToolpathCanvas from './ToolpathCanvas.jsx';
@@ -9,7 +8,7 @@ export default function VisualizerPanel({ sceneRef: externalSceneRef }) {
   const sceneRef = externalSceneRef ?? localSceneRef;
   const fileRef = useRef(null);
   const [job, setJob] = useState(null);
-  const [selection, setSelection] = useState(null);
+  const [selection, setSelection] = useState(null); // {pathId,segmentId} | {region, pathIds[]} | null
   const [error, setError] = useState(null);
 
   const loadFile = async (file) => {
@@ -18,6 +17,7 @@ export default function VisualizerPanel({ sceneRef: externalSceneRef }) {
       const text = await file.text();
       const parsed = parseGcode(text);
       setJob({ ...parsed, name: file.name, text });
+      setSelection(null);
       const scene = sceneRef.current;
       if (scene) {
         scene.setJob(parsed);
@@ -36,10 +36,22 @@ export default function VisualizerPanel({ sceneRef: externalSceneRef }) {
 
   const onSelect = (sel) => {
     setSelection(sel);
-    sceneRef.current?.highlightPath(sel ? sel.pathId : null);
+    if (!sel) {
+      sceneRef.current?.highlightPath(null);
+    } else if (sel.region) {
+      // region select: highlight nothing yet; UI offers actions on pathIds
+    } else {
+      sceneRef.current?.highlightPath(sel.pathId);
+    }
   };
 
-  const selectedPath = selection && job ? job.paths.find((p) => p.id === selection.pathId) : null;
+  const scene = sceneRef.current;
+  const selectedPath =
+    selection && !selection.region && job ? job.paths.find((p) => p.id === selection.pathId) : null;
+  const regionPaths =
+    selection?.region && job
+      ? selection.pathIds.map((id) => job.paths.find((p) => p.id === id)).filter(Boolean)
+      : [];
 
   useEffect(() => {
     const onKey = (e) => {
@@ -57,11 +69,19 @@ export default function VisualizerPanel({ sceneRef: externalSceneRef }) {
           <span className="hint">
             {job.name} — {job.stats.paths} paths · {job.stats.cutSegments} segments ·{' '}
             {job.stats.rapids} rapids
+            {scene?.hiddenCount ? ` · ${scene.hiddenCount} hidden` : ''}
           </span>
         ) : (
           <span className="hint">drop a .nc/.gcode file or</span>
         )}
-        <button disabled={!job} onClick={() => onSelect(null)}>Clear selection</button>
+        <span className="hint">shift+drag = region select</span>
+        <span className="spacer" />
+        {job && (
+          <>
+            <button onClick={() => sceneRef.current?.showAll()}>Show All</button>
+            <button onClick={() => onSelect(null)}>Clear selection</button>
+          </>
+        )}
         <button onClick={() => fileRef.current?.click()}>Load G-code</button>
         <input
           ref={fileRef}
@@ -78,14 +98,50 @@ export default function VisualizerPanel({ sceneRef: externalSceneRef }) {
 
       {selectedPath && (
         <div className="selection-info">
-          <b>Path {selectedPath.id}</b>
-          {' — '}{selectedPath.segments.length} segments · depth {selectedPath.depth?.toFixed(3)} mm ·
-          feed {selectedPath.feed} mm/min · length {pathLength(selectedPath).toFixed(1)} mm
-          {selection && (
-            <span className="hint">
-              {' '}· segment {selection.segmentId} (source line {selection.sourceLine})
+          <div className="sel-title">
+            <b>Path {selectedPath.id}</b>
+            <span className="sel-actions">
+              <button onClick={() => sceneRef.current?.isolatePath(selectedPath.id)}>Isolate</button>
+              <button onClick={() => sceneRef.current?.hidePath(selectedPath.id)}>Hide</button>
+              <button onClick={() => sceneRef.current?.hideOthers(selectedPath.id)}>Hide Others</button>
             </span>
-          )}
+          </div>
+          <div>
+            {selectedPath.segments.length} segments · depth {selectedPath.depth?.toFixed(3)} mm ·
+            feed {selectedPath.feed} mm/min · length {pathLength(selectedPath).toFixed(1)} mm
+            {selection && !selection.region && (
+              <span className="hint">
+                {' '}· segment {selection.segmentId} (source line {selection.sourceLine})
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {regionPaths.length > 0 && (
+        <div className="selection-info">
+          <div className="sel-title">
+            <b>Region — {regionPaths.length} paths</b>
+            <span className="sel-actions">
+              <button onClick={() => regionPaths.forEach((p) => sceneRef.current?.hidePath(p.id))}>
+                Hide Selected
+              </button>
+              <button
+                onClick={() => {
+                  const keep = new Set(regionPaths.map((p) => p.id));
+                  job.paths.forEach((p) => {
+                    if (!keep.has(p.id)) sceneRef.current?.hidePath(p.id);
+                  });
+                }}
+              >
+                Isolate
+              </button>
+            </span>
+          </div>
+          <div className="hint">
+            paths {regionPaths.map((p) => p.id).join(', ')} ·{' '}
+            {regionPaths.reduce((n, p) => n + p.segments.length, 0)} segments total
+          </div>
         </div>
       )}
     </section>

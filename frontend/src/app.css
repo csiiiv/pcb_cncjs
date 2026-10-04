@@ -196,6 +196,10 @@ table.kv tr:last-child td { border-bottom: none; }
   border-radius: 6px;
   padding: 6px 10px;
 }
+.sel-title { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.sel-actions { display: flex; gap: 6px; }
+.sel-actions button { padding: 2px 8px; font-size: 11px; }
+.spacer { flex: 1; }
 
 /* Jog cluster */
 .jog-cluster {

@@ -56,6 +56,7 @@ export class ToolpathScene {
     this.raycaster.params.Line = { threshold: 0.3 };
 
     this.selectedPathId = null;
+    this.hiddenPathIds = new Set();
     this.pathObjects = new Map(); // pathId -> { line, segments: Map(segId -> line) }
     this.onSelect = null; // (selection | null) => void
     this.onHover = null;
@@ -72,6 +73,7 @@ export class ToolpathScene {
   setJob(job) {
     this.clearJob();
     if (!job) return;
+    this.hiddenPathIds.clear();
 
     for (const path of job.paths) {
       const color = PATH_COLORS[(path.id - 1) % PATH_COLORS.length];
@@ -125,16 +127,88 @@ export class ToolpathScene {
 
   highlightPath(pathId) {
     this.selectedPathId = pathId;
+    this.#applyVisibility();
+  }
+
+  // --- visibility controls (brief §21) ---
+  hidePath(pathId) {
+    if (pathId == null) return;
+    this.hiddenPathIds.add(pathId);
+    this.#applyVisibility();
+  }
+
+  hideAll() {
+    for (const pid of this.pathObjects.keys()) this.hiddenPathIds.add(pid);
+    this.#applyVisibility();
+  }
+
+  isolatePath(pathId) {
+    for (const pid of this.pathObjects.keys()) {
+      if (pid !== pathId) this.hiddenPathIds.add(pid);
+    }
+    this.hiddenPathIds.delete(pathId);
+    this.#applyVisibility();
+  }
+
+  hideOthers(pathId) {
+    this.isolatePath(pathId); // visually equivalent
+  }
+
+  showAll() {
+    this.hiddenPathIds.clear();
+    this.#applyVisibility();
+  }
+
+  get hiddenCount() {
+    return this.hiddenPathIds.size;
+  }
+
+  #applyVisibility() {
+    const selected = this.selectedPathId;
     for (const [pid, entry] of this.pathObjects) {
-      const selected = pid === pathId;
+      const hidden = this.hiddenPathIds.has(pid);
+      const isSelected = pid === selected;
       entry.segments.forEach((line) => {
-        // selected: white-hot; others: dimmed original color
-        const c = selected ? new THREE.Color(0xffffff) : entry.color;
-        line.material.color.copy(c);
-        line.material.opacity = selected ? 1 : pathId != null ? 0.25 : 1;
-        line.material.transparent = pathId != null && !selected;
+        line.visible = !hidden;
+        // selected: white-hot; a selection exists: others dimmed; no selection: full color
+        if (isSelected) {
+          line.material.color.set(0xffffff);
+          line.material.opacity = 1;
+          line.material.transparent = false;
+        } else {
+          line.material.color.copy(entry.color);
+          line.material.opacity = selected != null ? 0.25 : 1;
+          line.material.transparent = selected != null;
+        }
       });
     }
+  }
+
+  // --- region selection (brief §19.3) ---
+  // Selects all paths with any segment intersecting the given world-space
+  // rectangle (two corner points on the z=0 plane, XY).
+  selectRegion(cornerA, cornerB) {
+    const minX = Math.min(cornerA.x, cornerB.x);
+    const maxX = Math.max(cornerA.x, cornerB.x);
+    const minY = Math.min(cornerA.y, cornerB.y);
+    const maxY = Math.max(cornerA.y, cornerB.y);
+
+    const hits = new Set();
+    for (const [pid, entry] of this.pathObjects) {
+      if (this.hiddenPathIds.has(pid)) continue;
+      for (const line of entry.segments.values()) {
+        const pos = line.geometry.attributes.position;
+        for (let i = 0; i < pos.count; i++) {
+          const x = pos.getX(i);
+          const y = pos.getY(i);
+          if (x >= minX && x <= maxX && y >= minY && y <= maxY) {
+            hits.add(pid);
+            break;
+          }
+        }
+      }
+    }
+    return [...hits];
   }
 
   frameJob(job) {
@@ -207,11 +281,21 @@ export class ToolpathScene {
     };
 
     const onDown = (e) => {
+      if (e.button === 0 && e.shiftKey) {
+        // Shift+LMB: start rubber-band region selection
+        this.#regionStart = this.#screenToWorld(e);
+        this.#regionRect = null;
+        return;
+      }
       if (e.button === 0) this.#maybeSelect(e);
       this.orbit.panning = e.button === 2 || e.button === 1;
       this.orbit.last = { x: e.clientX, y: e.clientY };
     };
     const onMove = (e) => {
+      if (this.#regionStart) {
+        this.#drawRegionRect(e);
+        return;
+      }
       if (!this.orbit.last) return;
       const dx = e.clientX - this.orbit.last.x;
       const dy = e.clientY - this.orbit.last.y;
@@ -232,7 +316,14 @@ export class ToolpathScene {
       }
       this.camera.lookAt(this.orbit.target);
     };
-    const onUp = () => { this.orbit.panning = false; this.orbit.last = null; };
+    const onUp = (e) => {
+      if (this.#regionStart) {
+        this.#finishRegionSelect(e);
+        return;
+      }
+      this.orbit.panning = false;
+      this.orbit.last = null;
+    };
     const onWheel = (e) => {
       e.preventDefault();
       const offset = this.camera.position.clone().sub(this.orbit.target);
@@ -273,8 +364,62 @@ export class ToolpathScene {
     this.onSelect({ pathId, segmentId, sourceLine });
   }
 
+  // --- region selection internals ---
+
+  #screenToWorld(e) {
+    // project the mouse ray onto the z=0 plane (PCB plane)
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const ndc = new THREE.Vector2(
+      ((e.clientX - rect.left) / rect.width) * 2 - 1,
+      -((e.clientY - rect.top) / rect.height) * 2 + 1
+    );
+    this.raycaster.setFromCamera(ndc, this.camera);
+    const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0); // z = 0
+    const point = new THREE.Vector3();
+    const hit = this.raycaster.ray.intersectPlane(plane, point);
+    return hit ? { x: point.x, y: point.y } : null;
+  }
+
+  #drawRegionRect(e) {
+    const now = this.#screenToWorld(e);
+    if (!now) return;
+
+    if (!this.#regionRect) {
+      // rectangle outline: 4 corners as a LineLoop in screen-anchored world coords
+      const geo = new THREE.BufferGeometry();
+      const mat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8 });
+      this.#regionRect = new THREE.LineLoop(geo, mat);
+      this.scene.add(this.#regionRect);
+    }
+    const a = this.#regionStart, b = now;
+    const pts = [
+      new THREE.Vector3(a.x, a.y, 0.5),
+      new THREE.Vector3(b.x, a.y, 0.5),
+      new THREE.Vector3(b.x, b.y, 0.5),
+      new THREE.Vector3(a.x, b.y, 0.5)
+    ];
+    this.#regionRect.geometry.dispose();
+    this.#regionRect.geometry = new THREE.BufferGeometry().setFromPoints(pts);
+  }
+
+  #finishRegionSelect(e) {
+    const end = this.#screenToWorld(e);
+    if (this.#regionRect) {
+      this.scene.remove(this.#regionRect);
+      this.#regionRect.geometry.dispose();
+      this.#regionRect = null;
+    }
+    if (this.#regionStart && end) {
+      const pathIds = this.selectRegion(this.#regionStart, end);
+      this.onSelect?.({ region: true, pathIds });
+    }
+    this.#regionStart = null;
+  }
+
   #orbitUnbind = null;
   #onResize = null;
+  #regionStart = null;
+  #regionRect = null;
   #bindEvents() {
     this.#onResize = () => this.resize();
     window.addEventListener('resize', this.#onResize);
