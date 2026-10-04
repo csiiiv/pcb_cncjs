@@ -36,6 +36,8 @@ export default function AutolevelWidget() {
   const [maxY, setMaxY] = useState(50);
   const [spacing, setSpacing] = useState(10);
   const [margin, setMargin] = useState(2);
+  const [point, setPoint] = useState({ x: 0, y: 0 });
+  const [manual, setManual] = useState([]);
 
   // normalize so partially-typed / inverted bounds can't poison refine + lattice
   const bounds = {
@@ -148,6 +150,19 @@ export default function AutolevelWidget() {
     [probe.vertices, probe.triangles]
   );
 
+  const addManual = () => {
+    setError(null);
+    // manual points join the mesh like any refinement candidate; bounds are
+    // not enforced — the operator may probe beyond the nominal board
+    probeStore.addVertices([{ id: makeVertexId(), x: point.x, y: point.y }]);
+    setManual((m) => [...m, { ...point }]);
+    setPoint({ x: point.x + spacing, y: point.y }); // step X for quick rows
+  };
+
+  const removeManual = (p) => {
+    setManual((m) => m.filter((q) => q.x !== p.x || q.y !== p.y));
+  };
+
   const applyCompensation = () => {
     setError(null);
     if (!v.job?.text) {
@@ -213,6 +228,25 @@ export default function AutolevelWidget() {
                 <button onClick={regenerate}>Regenerate lattice</button>
               </div>
               <p className="hint">Alt+click a triangle in the 3D view to refine it. Measured points are kept.</p>
+              <h3>Manual points</h3>
+              <div className="probe-fields cols-2">
+                <NumField label="X" value={point.x} onChange={(x) => setPoint({ ...point, x })} />
+                <NumField label="Y" value={point.y} onChange={(y) => setPoint({ ...point, y })} />
+              </div>
+              <div className="probe-row">
+                <button onClick={addManual}>Add point</button>
+              </div>
+              {manual.length > 0 && (
+                <div className="probe-list">
+                  {manual.map((p) => (
+                    <div className="probe-row" key={`${p.x},${p.y}`}>
+                      <span className="hint">{fmtAxis(p.x)}, {fmtAxis(p.y)}</span>
+                      <span className="spacer" />
+                      <button onClick={() => removeManual(p)}>Remove</button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </section>
           </div>
 
