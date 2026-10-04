@@ -2,21 +2,15 @@
 // Dock slot = summary; Setup opens the modal mesh editor.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useStoreSelector, probeStore, probeCommands, useProbe } from '../cnc/runtime.js';
-import { useViz } from '../visualizer/vizStore.js';
+import { useStoreSelector, probeStore, probeCommands, useProbe, fmtAxis } from '../cnc/runtime.js';
+import { useViz, setViz } from '../visualizer/vizStore.js';
 import { triangularLattice } from '../probe/lattice.js';
 import { refineCandidates } from '../probe/refine.js';
 import { makeVertexId } from '../probe/mesh.js';
 import { buildSurface } from '../probe/surface.js';
 import { compensateGcode } from '../probe/compensate.js';
 import { parseGcode } from '../jobs/parseGcode.js';
-import { fmtAxis } from '../cnc/state.js';
 import NumField from '../ui/NumField.jsx';
-
-const num = (v) => {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : 0;
-};
 
 export default function AutolevelWidget() {
   const port = useStoreSelector((s) => s.connectedPort);
@@ -37,7 +31,7 @@ export default function AutolevelWidget() {
   const [spacing, setSpacing] = useState(10);
   const [margin, setMargin] = useState(2);
   const [point, setPoint] = useState({ x: 0, y: 0 });
-  const [manual, setManual] = useState([]);
+  const [manual, setManual] = useState([]); // history of manual adds for the list UI
 
   // normalize so partially-typed / inverted bounds can't poison refine + lattice
   const bounds = {
@@ -49,8 +43,8 @@ export default function AutolevelWidget() {
   const measured = probe.vertices.filter((p) => Number.isFinite(Number(p.z))).length;
   const pending = probe.vertices.length - measured;
 
-  // regenerate the lattice whenever bounds or spacing change; keeps any
-  // measured vertices whose position still exists in the new lattice
+  // Rebuild the lattice from bounds + spacing, preserving every measured
+  // vertex whose position still exists in the new lattice.
   const regenerate = useCallback(() => {
     const keep = new Map(probe.vertices
       .filter((p) => Number.isFinite(Number(p.z)))
@@ -59,18 +53,18 @@ export default function AutolevelWidget() {
       const old = keep.get(`${Math.round(p.x * 100)}:${Math.round(p.y * 100)}`);
       return old ? { ...old } : { id: makeVertexId(), x: p.x, y: p.y };
     });
-    // measured vertices outside the new bounds are dropped with the shrink
     probeStore.setMesh(lattice, bounds);
   }, [minX, maxX, minY, maxY, spacing, probe.vertices]);
 
   const regenerateRef = useRef(regenerate);
   regenerateRef.current = regenerate;
 
+  // Closing the modal applies any bounds/spacing edits; while open, edits are
+  // explicit (Regenerate button) so typing half-finished numbers is safe.
   useEffect(() => {
-    if (open) return; // modal edits drive explicit regenerates
+    if (open) return;
     regenerateRef.current();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [minX, maxX, minY, maxY, spacing, open]);
+  }, [open, minX, maxX, minY, maxY, spacing]);
 
   useEffect(() => {
     if (!armed) return undefined;
@@ -152,14 +146,13 @@ export default function AutolevelWidget() {
 
   const addManual = () => {
     setError(null);
-    // manual points join the mesh like any refinement candidate; bounds are
-    // not enforced — the operator may probe beyond the nominal board
     probeStore.addVertices([{ id: makeVertexId(), x: point.x, y: point.y }]);
     setManual((m) => [...m, { ...point }]);
     setPoint({ x: point.x + spacing, y: point.y }); // step X for quick rows
   };
 
   const removeManual = (p) => {
+    // history entry only — the vertex stays until a lattice regenerate
     setManual((m) => m.filter((q) => q.x !== p.x || q.y !== p.y));
   };
 
@@ -182,14 +175,13 @@ export default function AutolevelWidget() {
       );
       return;
     }
-    const parsed = parseGcode(r.text);
     setViz({
-      job: { ...parsed, name: `${v.job.name || 'job'} (compensated)`, text: r.text },
+      job: { ...parseGcode(r.text), name: `${v.job.name || 'job'} (compensated)`, text: r.text },
       selection: null,
     });
   };
 
-  const modal = open && createPortal(
+  if (open) return createPortal(
     <div className="modal-backdrop side" onMouseDown={() => setOpen(false)}>
       <div className="modal-panel" role="dialog" aria-label="Autolevel setup" onMouseDown={(e) => e.stopPropagation()}>
         <div className="modal-head">
@@ -308,7 +300,6 @@ export default function AutolevelWidget() {
           <button onClick={() => probeStore.clearResults()}>Clear measurements</button>
         </div>
       )}
-      {modal}
     </section>
   );
 }
