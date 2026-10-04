@@ -7,6 +7,9 @@ import { useViz } from '../visualizer/vizStore.js';
 import { triangularLattice } from '../probe/lattice.js';
 import { refineCandidates } from '../probe/refine.js';
 import { makeVertexId } from '../probe/mesh.js';
+import { buildSurface } from '../probe/surface.js';
+import { compensateGcode } from '../probe/compensate.js';
+import { parseGcode } from '../jobs/parseGcode.js';
 import { fmtAxis } from '../cnc/state.js';
 import NumField from '../ui/NumField.jsx';
 
@@ -137,6 +140,37 @@ export default function AutolevelWidget() {
     }
   };
 
+  const surface = useMemo(
+    () => buildSurface(probe.vertices, probe.triangles),
+    [probe.vertices, probe.triangles]
+  );
+
+  const applyCompensation = () => {
+    setError(null);
+    if (!v.job?.text) {
+      setError('load G-code in the visualizer first');
+      return;
+    }
+    if (surface.triangleCount === 0) {
+      setError('no measured surface — probe first');
+      return;
+    }
+    const r = compensateGcode({ text: v.job.text, surface, maxSegLen: 2 });
+    if (r.outside.length) {
+      setError(
+        `${r.outside.length} cutting point${r.outside.length === 1 ? '' : 's'} outside the probed surface ` +
+        `(first: line ${r.outside[0].line} at ${fmtAxis(r.outside[0].x)}, ${fmtAxis(r.outside[0].y)}). ` +
+        'Expand or refine the mesh to cover the toolpath.'
+      );
+      return;
+    }
+    const parsed = parseGcode(r.text);
+    setViz({
+      job: { ...parsed, name: `${v.job.name || 'job'} (compensated)`, text: r.text },
+      selection: null,
+    });
+  };
+
   const modal = open && createPortal(
     <div className="modal-backdrop side" onMouseDown={() => setOpen(false)}>
       <div className="modal-panel" role="dialog" aria-label="Autolevel setup" onMouseDown={(e) => e.stopPropagation()}>
@@ -177,6 +211,24 @@ export default function AutolevelWidget() {
               <p className="hint">Alt+click a triangle in the 3D view to refine it. Measured points are kept.</p>
             </section>
           </div>
+
+          <h3>Surface &amp; compensation</h3>
+          <div className="probe-row">
+            <span className="hint">
+              {surface.triangleCount > 0
+                ? `${surface.triangleCount} measured triangles · surface shown as tinted mesh over the toolpath`
+                : 'no measured surface yet'}
+            </span>
+            <span className="spacer" />
+            <button disabled={!v.job || surface.triangleCount === 0} onClick={applyCompensation}
+              title="creates a compensated copy as a new job; the nominal G-code is untouched">
+              Apply compensation
+            </button>
+          </div>
+          <p className="hint">
+            Cutting moves are subdivided (~2 mm) and Z-shifted onto the measured surface.
+            Paths outside the probed area are rejected — expand the mesh instead.
+          </p>
         </div>
         <div className="modal-foot">
           <span className="hint">

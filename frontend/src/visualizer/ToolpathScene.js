@@ -224,6 +224,51 @@ export class ToolpathScene {
     return -1;
   }
 
+  /** Filled surface mesh from measured triangles, tinted low→high. */
+  setSurface(vertices = [], triangles = []) {
+    const drop = (obj) => {
+      if (!obj) return;
+      this.overlayGroup.remove(obj);
+      obj.geometry.dispose();
+      obj.material.dispose();
+    };
+    drop(this.surfaceMesh);
+    this.surfaceMesh = null;
+
+    const usable = [];
+    for (const t of triangles) {
+      const tri = t.map((i) => vertices[i]);
+      if (tri.every((v) => v && Number.isFinite(Number(v.z)))) usable.push(tri);
+    }
+    if (!usable.length) return;
+
+    const zs = vertices.filter((v) => Number.isFinite(Number(v.z))).map((v) => Number(v.z));
+    const zMin = Math.min(...zs);
+    const zSpan = Math.max(1e-6, Math.max(...zs) - zMin);
+
+    const pos = new Float32Array(usable.length * 9);
+    const col = new Float32Array(usable.length * 9);
+    let w = 0;
+    for (const [A, B, C] of usable) {
+      for (const v of [A, B, C]) {
+        pos[w] = v.x; pos[w + 1] = v.y; pos[w + 2] = Number(v.z) + 0.002;
+        const t = (Number(v.z) - zMin) / zSpan;
+        col[w] = 0.16 + 0.5 * t;
+        col[w + 1] = 0.55 + 0.2 * t;
+        col[w + 2] = 0.85 - 0.45 * t;
+        w += 3;
+      }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    this.surfaceMesh = new THREE.Mesh(
+      geo,
+      new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false })
+    );
+    this.overlayGroup.add(this.surfaceMesh);
+  }
+
   // --- view presets (brief §17: zoom/pan/orbit companions) ---
   setView(name) {
     const target = this.orbit.target.clone();
@@ -429,6 +474,8 @@ export class ToolpathScene {
 
     this.probePlan = null;
     this.probeHits = null;
+    this.probeMesh = { vertices: [], triangles: [] };
+    this.surfaceMesh = null;
   }
 
   // --- step-through preview cursor ---

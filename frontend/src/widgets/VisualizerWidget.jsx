@@ -24,6 +24,9 @@ function ProbeOverlay({ sceneRef }) {
   useEffect(() => {
     sceneRef.current?.setProbe(probe.vertices, probe.triangles);
   }, [probe.vertices, probe.triangles, sceneRef]);
+  useEffect(() => {
+    sceneRef.current?.setSurface(probe.vertices, probe.triangles);
+  }, [probe.vertices, probe.triangles, sceneRef]);
   return null;
 }
 
