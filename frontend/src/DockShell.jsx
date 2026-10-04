@@ -12,10 +12,10 @@ const WIDGETS = {
   dro: { title: 'DRO', component: DroWidget },
   status: { title: 'Status', component: StatusWidget },
   controls: { title: 'Machine Controls', component: MachineControlsWidget },
-  visualizer: { title: 'Toolpath', component: VisualizerWidget },
-  gcode: { title: 'G-code', component: GcodePreviewWidget },
+  visualizer: { title: 'Toolpath', component: VisualizerWidget, grow: true },
+  gcode: { title: 'G-code', component: GcodePreviewWidget, grow: true },
   runner: { title: 'Job Runner', component: JobRunnerWidget },
-  console: { title: 'Console', component: ConsoleWidget }
+  console: { title: 'Console', component: ConsoleWidget, grow: true }
 };
 
 const DEFAULT_LAYOUT = {
@@ -124,8 +124,20 @@ export default function DockShell() {
     // during the drag, otherwise set-height → re-measure → set-height compounds
     const slotEl = document.querySelector(`.widget-slot[data-widget="${id}"]`);
     const baseH = heights[id] ?? (slotEl ? slotEl.getBoundingClientRect().height : 200);
+
+    // max: grow-widgets may expand to near-viewport; content-sized widgets cap
+    // at their natural height (measured synchronously — no paint in between)
+    let maxH = window.innerHeight - 140;
+    if (!WIDGETS[id].grow && slotEl) {
+      const prev = slotEl.style.height;
+      slotEl.style.height = 'auto';
+      maxH = Math.max(90, slotEl.getBoundingClientRect().height); // natural cap
+      slotEl.style.height = prev;
+    }
+
     const onMove = (ev) => {
-      setHeights((h) => ({ ...h, [id]: Math.max(90, Math.round(baseH + (ev.clientY - startY))) }));
+      const next = Math.max(90, Math.min(maxH, Math.round(baseH + (ev.clientY - startY))));
+      setHeights((h) => ({ ...h, [id]: next }));
     };
     const onUp = () => {
       window.removeEventListener('mousemove', onMove);
