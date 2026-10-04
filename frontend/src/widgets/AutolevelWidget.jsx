@@ -35,6 +35,7 @@ export default function AutolevelWidget() {
   const [minY, setMinY] = useState(0);
   const [maxY, setMaxY] = useState(50);
   const [spacing, setSpacing] = useState(10);
+  const [margin, setMargin] = useState(2);
 
   // normalize so partially-typed / inverted bounds can't poison refine + lattice
   const bounds = {
@@ -107,10 +108,12 @@ export default function AutolevelWidget() {
   const useJobBounds = () => {
     const b = v.job?.bounds;
     if (!b || !Number.isFinite(b.min.x) || !Number.isFinite(b.min.y)) return;
-    setMinX(Math.floor(b.min.x));
-    setMaxX(Math.ceil(b.max.x));
-    setMinY(Math.floor(b.min.y));
-    setMaxY(Math.ceil(b.max.y));
+    // pad outward: interpolation only exists strictly inside the probe hull,
+    // so probing exactly the job bounds leaves edge/corner cuts unsupported
+    setMinX(Math.floor(b.min.x - margin));
+    setMaxX(Math.ceil(b.max.x + margin));
+    setMinY(Math.floor(b.min.y - margin));
+    setMaxY(Math.ceil(b.max.y + margin));
   };
 
   const motion = { clearanceZ, startZ, endZ, feedrate };
@@ -203,6 +206,7 @@ export default function AutolevelWidget() {
                 <NumField label="Min Y" value={minY} onChange={setMinY} />
                 <NumField label="Max Y" value={maxY} onChange={setMaxY} />
                 <NumField label="Mesh spacing" value={spacing} onChange={(s) => setSpacing(Math.max(0.5, s))} />
+                <NumField label="Job margin" value={margin} onChange={(m) => setMargin(Math.max(0, m))} title="outward padding added by Use job bounds" />
               </div>
               <div className="probe-row">
                 <button disabled={!v.job} onClick={useJobBounds}>Use job bounds</button>
