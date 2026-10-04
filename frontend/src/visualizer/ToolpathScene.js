@@ -64,6 +64,11 @@ export class ToolpathScene {
     this.#buildOverlay();
     this.#bindEvents();
 
+    // frame the default ±100mm workspace so the empty viewer is oriented
+    this.camera.position.set(140, -140, 110);
+    this.camera.lookAt(0, 0, 0);
+    this.orbit.target.set(0, 0, 0);
+
     this.clock = new THREE.Clock();
     this.#animate();
   }
@@ -298,9 +303,10 @@ export class ToolpathScene {
     grid.rotation.x = Math.PI / 2; // GridHelper is XZ by default
     this.overlayGroup.add(grid);
 
-    // rulers (built per-job in #buildRulers)
+    // rulers (built per-job in #buildRulers; default workspace until then)
     this.rulerGroup = new THREE.Group();
     this.overlayGroup.add(this.rulerGroup);
+    this.#buildRulers({ min: { x: -100, y: -100 }, max: { x: 100, y: 100 } });
 
     // tool position marker: small crosshair + vertical line
     this.toolMarker = new THREE.Group();
