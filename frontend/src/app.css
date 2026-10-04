@@ -118,8 +118,30 @@ body {
   font-size: 15px; cursor: pointer; padding: 0 4px; line-height: 1;
 }
 .widget-close:hover { color: var(--alarm); }
-.widget-body { padding: 10px 12px; overflow: auto; }
+.widget-body { padding: 10px 12px; overflow: auto; flex: 1; min-height: 0; }
 .widget-body section.widget, .widget-body .widget { all: unset; display: block; width: 100%; }
+
+.widget-resize-grip {
+  height: 10px;
+  flex-shrink: 0;
+  cursor: ns-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #1a212b;
+  border-top: 1px solid var(--panel-edge);
+}
+.widget-resize-grip::before {
+  content: '';
+  width: 36px; height: 3px;
+  border-radius: 2px;
+  background: #3a4657;
+}
+.widget-resize-grip:hover::before, body.resizing-v .widget-resize-grip::before {
+  background: var(--accent);
+}
+body.resizing-v { cursor: ns-resize; }
+body.resizing-v * { pointer-events: none !important; }
 
 .drop-indicator {
   height: 3px;

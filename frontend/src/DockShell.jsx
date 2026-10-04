@@ -48,6 +48,10 @@ export default function DockShell() {
     try { return JSON.parse(localStorage.getItem('pcb-cnc-widths') || 'null') || { left: 300, right: 320 }; }
     catch { return { left: 300, right: 320 }; }
   });
+  const [heights, setHeights] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('pcb-cnc-heights') || 'null') || {}; }
+    catch { return {}; }
+  });
   const [drag, setDrag] = useState(null); // { id, fromZone }
   const [dropTarget, setDropTarget] = useState(null); // { zone, index }
 
@@ -57,6 +61,9 @@ export default function DockShell() {
   useEffect(() => {
     localStorage.setItem('pcb-cnc-widths', JSON.stringify(widths));
   }, [widths]);
+  useEffect(() => {
+    localStorage.setItem('pcb-cnc-heights', JSON.stringify(heights));
+  }, [heights]);
 
   const moveWidget = useCallback((id, toZone, toIndex) => {
     setLayout((prev) => {
@@ -107,6 +114,40 @@ export default function DockShell() {
     window.addEventListener('mouseup', onUp);
   };
 
+  // --- widget vertical resize ---
+  const startWidgetResize = (id) => (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startY = e.clientY;
+    const startH = heights[id] ?? null; // null = auto
+    const onMove = (ev) => {
+      if (startH == null) {
+        // first drag from auto: measure current height, then apply delta
+        const el = document.querySelector(`.widget-slot[data-widget="${id}"] .widget-body`);
+        const base = el ? el.offsetHeight : 200;
+        setHeights((h) => ({ ...h, [id]: Math.max(90, base + (ev.clientY - startY)) }));
+      } else {
+        setHeights((h) => ({ ...h, [id]: Math.max(90, startH + (ev.clientY - startY)) }));
+      }
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      document.body.classList.remove('resizing-v');
+    };
+    document.body.classList.add('resizing-v');
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
+
+  const resetWidgetHeight = (id) => () => {
+    setHeights((h) => {
+      const next = { ...h };
+      delete next[id];
+      return next;
+    });
+  };
+
   const renderZone = (zone) => (
     <div
       className={`dock-zone dock-${zone} ${dropTarget?.zone === zone && dropTarget.index == null ? 'drop-hover' : ''}`}
@@ -127,6 +168,8 @@ export default function DockShell() {
             {isDropBefore && <div className="drop-indicator" />}
             <div
               className={`widget-slot ${drag?.id === id ? 'dragging' : ''}`}
+              data-widget={id}
+              style={heights[id] ? { height: heights[id], flex: '0 0 auto' } : undefined}
               onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget({ zone, index: i }); }}
             >
               <div
@@ -140,8 +183,16 @@ export default function DockShell() {
                 <span className="widget-title">{W.title}</span>
                 <button className="widget-close" onClick={() => closeWidget(id)} title="close widget">×</button>
               </div>
-              <div className="widget-body">
+              <div className="widget-body" style={heights[id] ? { overflow: 'auto' } : undefined}>
                 <W.component />
+              </div>
+              <div
+                className="widget-resize-grip"
+                onMouseDown={startWidgetResize(id)}
+                onDoubleClick={resetWidgetHeight(id)}
+                title="drag: resize height · double-click: auto"
+              >
+                <span />
               </div>
             </div>
           </div>
