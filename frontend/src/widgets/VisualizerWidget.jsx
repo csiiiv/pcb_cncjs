@@ -3,6 +3,20 @@ import { useEffect, useRef } from 'react';
 import { parseGcode, pathLength } from '../jobs/parseGcode.js';
 import ToolpathCanvas from '../visualizer/ToolpathCanvas.jsx';
 import { viz, setViz, useViz } from '../visualizer/vizStore.js';
+import { useMachineState } from '../cnc/runtime.js';
+
+// Subscribes to machine state; mirrors live work position onto the 3D tool marker.
+function MachinePositionTracker({ sceneRef }) {
+  const snap = useMachineState();
+  useEffect(() => {
+    sceneRef.current?.setToolPosition(
+      snap.connectedPort && snap.wpos
+        ? { x: Number(snap.wpos.x), y: Number(snap.wpos.y), z: Number(snap.wpos.z) }
+        : null
+    );
+  }, [snap.connectedPort, snap.wpos, sceneRef]);
+  return null;
+}
 
 export default function VisualizerWidget() {
   const sceneRef = useRef(null);
@@ -75,7 +89,14 @@ export default function VisualizerWidget() {
         <FileButton onFile={loadFile} />
       </div>
 
-      <ToolpathCanvas sceneRef={sceneRef} onSelect={onSelect} />
+      <ToolpathCanvas
+        sceneRef={sceneRef}
+        onSelect={onSelect}
+        onReady={(scene) => setViz({ scene })}
+      />
+
+      {/* live machine position → tool marker (restored after dock refactor) */}
+      <MachinePositionTracker sceneRef={sceneRef} />
 
       {(selectedPath || regionPaths.length > 0) && (
         <div className="selection-info">

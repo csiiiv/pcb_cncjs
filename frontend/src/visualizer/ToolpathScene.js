@@ -122,6 +122,10 @@ export class ToolpathScene {
 
   setToolPosition(pos) {
     if (!this.toolMarker) return;
+    if (!pos) {
+      this.toolMarker.visible = false; // port closed / no data yet
+      return;
+    }
     this.toolMarker.position.set(pos.x, pos.y, pos.z);
     this.toolMarker.visible = true;
   }
