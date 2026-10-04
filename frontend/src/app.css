@@ -367,3 +367,76 @@ button.toggle.on { border-color: var(--accent); color: var(--accent); background
 .console-line.dir-out .dir-tag { color: #7fa3d9; }
 .console-line.dir-job { color: #ffb454; }
 .console-line.dir-job .dir-tag { color: #ffb454; }
+
+/* Probe */
+.probe-widget h3, .modal-body h3 { margin: 12px 0 6px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.probe-label { margin: 8px 0 4px; font-size: 10px; color: var(--muted); }
+.seg { display: flex; gap: 4px; flex-wrap: wrap; }
+.seg button { padding: 3px 8px; font-size: 11px; }
+.seg button.on { border-color: var(--accent); color: var(--accent); }
+.probe-fields {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin: 6px 0;
+}
+.probe-fields.cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.probe-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 10px;
+  color: var(--muted);
+}
+.probe-fields input {
+  width: 100%;
+  box-sizing: border-box;
+  background: #0b0e13;
+  color: var(--text);
+  border: 1px solid var(--panel-edge);
+  border-radius: 4px;
+  padding: 3px 6px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.probe-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 4px 0; }
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(6, 8, 12, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.modal-panel {
+  width: min(820px, 100%);
+  max-height: min(860px, calc(100vh - 48px));
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--panel-edge);
+  border-radius: 12px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+}
+.modal-head, .modal-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+}
+.modal-head { border-bottom: 1px solid var(--panel-edge); }
+.modal-head h2 { margin: 0; font-size: 16px; }
+.modal-foot { border-top: 1px solid var(--panel-edge); }
+.modal-body { overflow: auto; padding: 8px 16px 16px; }
+.modal-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+@media (max-width: 720px) {
+  .modal-cols { grid-template-columns: 1fr; }
+}
+

@@ -135,6 +135,95 @@ export class ToolpathScene {
     this.toolMarker.visible = true;
   }
 
+  // Probe mesh over the toolpath: triangle wireframe (derived) + vertices.
+  // Unmeasured vertices sit just above Z0 in grey; measured ones use their Z
+  // and a low-to-high color so the surface range reads at a glance.
+  setProbe(vertices = [], triangles = []) {
+    const drop = (obj) => {
+      if (!obj) return;
+      this.overlayGroup.remove(obj);
+      obj.geometry.dispose();
+      obj.material.dispose();
+    };
+    drop(this.probePlan);
+    drop(this.probeHits);
+    this.probePlan = null;
+    this.probeHits = null;
+    this.probeMesh = { vertices, triangles };
+
+    if (!vertices.length) return;
+
+    const zs = vertices.map((v) => Number(v.z)).filter((n) => Number.isFinite(n));
+    const zMin = zs.length ? Math.min(...zs) : 0;
+    const zSpan = Math.max(1e-6, (zs.length ? Math.max(...zs) : 0) - zMin);
+
+    // vertices
+    const pos = new Float32Array(vertices.length * 3);
+    const col = new Float32Array(vertices.length * 3);
+    vertices.forEach((v, i) => {
+      const measured = Number.isFinite(Number(v.z));
+      pos[i * 3] = v.x;
+      pos[i * 3 + 1] = v.y;
+      pos[i * 3 + 2] = measured ? Number(v.z) : 0.05;
+      if (measured) {
+        const t = (Number(v.z) - zMin) / zSpan;
+        col[i * 3] = 0.25 + 0.7 * t;
+        col[i * 3 + 1] = 0.8 - 0.45 * t;
+        col[i * 3 + 2] = 0.95 - 0.75 * t;
+      } else {
+        col[i * 3] = 0.62;
+        col[i * 3 + 1] = 0.66;
+        col[i * 3 + 2] = 0.72;
+      }
+    });
+    const vGeo = new THREE.BufferGeometry();
+    vGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    vGeo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    this.probePlan = new THREE.Points(vGeo, new THREE.PointsMaterial({ size: 5, vertexColors: true, sizeAttenuation: false }));
+    this.overlayGroup.add(this.probePlan);
+
+    // triangle wireframe: 3 edges per triangle, z follows measured vertices
+    if (triangles.length) {
+      const xyz = new Float32Array(triangles.length * 3 * 2 * 3);
+      const zOf = (v) => (Number.isFinite(Number(v?.z)) ? Number(v.z) + 0.004 : 0.04);
+      let w = 0;
+      for (const [a, b, c] of triangles) {
+        const ring = [vertices[a], vertices[b], vertices[c], vertices[a]];
+        for (let k = 0; k < 3; k++) {
+          const p = ring[k];
+          const q = ring[k + 1];
+          xyz[w++] = p.x; xyz[w++] = p.y; xyz[w++] = zOf(p);
+          xyz[w++] = q.x; xyz[w++] = q.y; xyz[w++] = zOf(q);
+        }
+      }
+      const tGeo = new THREE.BufferGeometry();
+      tGeo.setAttribute('position', new THREE.BufferAttribute(xyz, 3));
+      this.probeHits = new THREE.LineSegments(tGeo, new THREE.LineBasicMaterial({ color: 0x3b4756, transparent: true, opacity: 0.75 }));
+      this.overlayGroup.add(this.probeHits);
+    }
+  }
+
+  /** Probe triangle under a screen point, for click-to-refine. -1 when none. */
+  probeTriangleAt(e) {
+    if (!this.probeMesh?.triangles?.length) return -1;
+    const p = this.#screenToWorld(e);
+    if (!p) return -1;
+    const { vertices, triangles } = this.probeMesh;
+    for (let i = 0; i < triangles.length; i++) {
+      const [a, b, c] = triangles[i];
+      const A = vertices[a];
+      const B = vertices[b];
+      const C = vertices[c];
+      const d1 = (p.x - B.x) * (A.y - B.y) - (A.x - B.x) * (p.y - B.y);
+      const d2 = (p.x - C.x) * (B.y - C.y) - (B.x - C.x) * (p.y - C.y);
+      const d3 = (p.x - A.x) * (C.y - A.y) - (C.x - A.x) * (p.y - A.y);
+      const neg = d1 < 0 || d2 < 0 || d3 < 0;
+      const pos = d1 > 0 || d2 > 0 || d3 > 0;
+      if (!(neg && pos)) return i;
+    }
+    return -1;
+  }
+
   // --- view presets (brief §17: zoom/pan/orbit companions) ---
   setView(name) {
     const target = this.orbit.target.clone();
@@ -337,6 +426,9 @@ export class ToolpathScene {
     this.previewMarker.visible = false;
     this.overlayGroup.add(this.previewMarker);
     this.#previewLineObjs = [];
+
+    this.probePlan = null;
+    this.probeHits = null;
   }
 
   // --- step-through preview cursor ---

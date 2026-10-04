@@ -3,18 +3,27 @@ import { useEffect, useRef } from 'react';
 import { parseGcode, pathLength } from '../jobs/parseGcode.js';
 import ToolpathCanvas from '../visualizer/ToolpathCanvas.jsx';
 import { viz, setViz, useViz } from '../visualizer/vizStore.js';
-import { useMachineState } from '../cnc/runtime.js';
+import { useStoreSelector, probeStore, useProbe } from '../cnc/runtime.js';
 
-// Subscribes to machine state; mirrors live work position onto the 3D tool marker.
+// Subscribes only to position, so console/ack frames don't touch the 3D scene.
 function MachinePositionTracker({ sceneRef }) {
-  const snap = useMachineState();
+  const connectedPort = useStoreSelector((s) => s.connectedPort);
+  const wpos = useStoreSelector((s) => s.wpos);
   useEffect(() => {
     sceneRef.current?.setToolPosition(
-      snap.connectedPort && snap.wpos
-        ? { x: Number(snap.wpos.x), y: Number(snap.wpos.y), z: Number(snap.wpos.z) }
+      connectedPort && wpos
+        ? { x: Number(wpos.x), y: Number(wpos.y), z: Number(wpos.z) }
         : null
     );
-  }, [snap.connectedPort, snap.wpos, sceneRef]);
+  }, [connectedPort, wpos, sceneRef]);
+  return null;
+}
+
+function ProbeOverlay({ sceneRef }) {
+  const probe = useProbe(probeStore);
+  useEffect(() => {
+    sceneRef.current?.setProbe(probe.vertices, probe.triangles);
+  }, [probe.vertices, probe.triangles, sceneRef]);
   return null;
 }
 
@@ -97,6 +106,7 @@ export default function VisualizerWidget() {
 
       {/* live machine position → tool marker (restored after dock refactor) */}
       <MachinePositionTracker sceneRef={sceneRef} />
+      <ProbeOverlay sceneRef={sceneRef} />
 
       {(selectedPath || regionPaths.length > 0) && (
         <div className="selection-info">

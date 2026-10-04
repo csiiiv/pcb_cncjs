@@ -1,16 +1,37 @@
 // Step-through G-code preview (job/selection via viz store).
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useViz } from '../visualizer/vizStore.js';
-import { useMachineState } from '../cnc/runtime.js';
+import { useStoreSelector } from '../cnc/runtime.js';
+
+// Memoized row: a run updates only the 1–2 rows whose active/in-buffer flags
+// changed — the other N−2 rows skip re-render entirely (props are primitives).
+const GcodeRow = memo(function GcodeRow({ lineNo, text, kind, active, inBuffer }) {
+  return (
+    <div
+      data-line={lineNo}
+      className={`gcode-line kind-${kind} ${active ? 'active' : ''} ${inBuffer ? 'in-buffer' : ''}`}
+    >
+      <span className="ln">{lineNo}</span>
+      <span className="txt">{text}</span>
+    </div>
+  );
+});
 
 export default function GcodePreviewWidget() {
   const v = useViz();
-  const snap = useMachineState();
+  const execLine = useStoreSelector((s) => s.execLine);
+  const sentLine = useStoreSelector((s) => s.sender?.sent ?? 0);
+  const workflowState = useStoreSelector((s) => s.workflowState);
   const job = v.job;
   const [activeLine, setActiveLine] = useState(null);
   const [followSelection, setFollowSelection] = useState(true);
   const [followRun, setFollowRun] = useState(true);
   const listRef = useRef(null);
+
+  const onListClick = useCallback((e) => {
+    const row = e.target.closest('[data-line]');
+    if (row) setActiveLine(Number(row.dataset.line));
+  }, []);
 
   const lines = useMemo(() => {
     if (!job) return [];
@@ -37,26 +58,33 @@ export default function GcodePreviewWidget() {
     }
   }, [v.selection, followSelection]);
 
-  // live run tracking: TRUE execution line (GRBL-acked) preferred over sender.sent (buffered ahead)
-  const execLine = snap.execLine;
-  const sentLine = snap.sender?.sent ?? 0;
-  const workflowRunning = snap.workflowState === 'running' || snap.workflowState === 'paused';
+  // live run tracking: GRBL-acked line preferred over sender.sent (buffered ahead)
+  const workflowRunning = workflowState === 'running' || workflowState === 'paused';
   useEffect(() => {
     if (!followRun || !workflowRunning || !job) return;
     const trackLine = execLine ?? sentLine;
-    if (!trackLine) return;
-    const text = job.text.split(/\r?\n/)[trackLine - 1];
-    if (text !== undefined) setActiveLine(trackLine);
-  }, [execLine, sentLine, workflowRunning, followRun, job]);
+    if (!trackLine || !lines[trackLine - 1]) return;
+    setActiveLine(trackLine);
+  }, [execLine, sentLine, workflowRunning, followRun, job, lines]);
 
   useEffect(() => {
     if (activeLine == null) return;
     const entry = lines.find((l) => l.lineNo === activeLine);
     if (entry?.segs) v.scene?.setPreviewCursor(entry.segs, entry.segs[entry.segs.length - 1].end);
     else v.scene?.setPreviewCursor(null);
-    const el = listRef.current?.querySelector(`[data-line="${activeLine}"]`);
-    if (el && followRun && workflowRunning) el.scrollIntoView({ block: 'center' });
-    else el?.scrollIntoView({ block: 'nearest' });
+    // Scroll only this list. scrollIntoView also scrolls every ancestor and
+    // forces a layout of the page; offsetTop is one row.
+    const list = listRef.current;
+    const row = list?.querySelector(`[data-line="${activeLine}"]`);
+    if (list && row && followRun && workflowRunning) {
+      const top = row.offsetTop;
+      const bottom = top + row.offsetHeight;
+      const viewTop = list.scrollTop;
+      const viewBottom = viewTop + list.clientHeight;
+      if (top < viewTop || bottom > viewBottom) {
+        list.scrollTop = top - list.clientHeight / 2 + row.offsetHeight / 2;
+      }
+    }
   }, [activeLine, lines, followRun, workflowRunning]);
 
   useEffect(() => {
@@ -109,21 +137,20 @@ export default function GcodePreviewWidget() {
           follow 3D selection
         </label>
       </div>
-      <div className="gcode-list" ref={listRef}>
+      <div className="gcode-list" ref={listRef} onClick={onListClick}>
         {lines.map((l) => {
           const inBuffer =
             workflowRunning && execLine != null && sentLine > execLine &&
             l.lineNo > execLine && l.lineNo <= sentLine;
           return (
-            <div
+            <GcodeRow
               key={l.lineNo}
-              data-line={l.lineNo}
-              className={`gcode-line kind-${l.kind} ${l.lineNo === activeLine ? 'active' : ''} ${inBuffer ? 'in-buffer' : ''}`}
-              onClick={() => setActiveLine(l.lineNo)}
-            >
-              <span className="ln">{l.lineNo}</span>
-              <span className="txt">{l.text}</span>
-            </div>
+              lineNo={l.lineNo}
+              text={l.text}
+              kind={l.kind}
+              active={l.lineNo === activeLine}
+              inBuffer={inBuffer}
+            />
           );
         })}
       </div>

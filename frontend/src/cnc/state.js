@@ -36,7 +36,6 @@ const initialSnapshot = () => ({
 });
 
 const MAX_CONSOLE_LINES = 1000; // user-facing cap; old entries trimmed as new arrive
-const CONSOLE_FLUSH_MS = 50;    // batch commits: ≤20 renders/s under ack storms
 
 export function createMachineStateStore() {
   let snapshot = initialSnapshot();
@@ -47,25 +46,52 @@ export function createMachineStateStore() {
     listeners.forEach((l) => l(snapshot));
   };
 
-  // Batched console push: real events can arrive in ack storms (100+/s during
-  // runs); committing per-line would re-render the whole tree per event.
-  // Buffer + flush on a 50ms cadence instead, trimming to the ring cap.
+  // Coalesce a burst of acks into ONE commit on the next animation frame.
+  // Ack lines are not delayed by the server; painting per-ack would re-render
+  // the lists faster than the display can show, and a 50ms timer made short
+  // jobs look chunky. One frame (~16ms) is the floor for visible updates.
   let consolePending = [];
-  let consoleFlushTimer = null;
+  let pendingExecLine;   // undefined = no change
+  let pendingSender;     // undefined = no change
+  let flushRaf = 0;
 
-  const flushConsole = () => {
-    consoleFlushTimer = null;
-    if (!consolePending.length) return;
-    const lines = [...snapshot.consoleLines, ...consolePending];
-    if (lines.length > MAX_CONSOLE_LINES) lines.splice(0, lines.length - MAX_CONSOLE_LINES);
-    consolePending = [];
-    commit({ consoleLines: lines });
+  const flush = () => {
+    flushRaf = 0;
+    const patch = {};
+    if (consolePending.length) {
+      const lines = [...snapshot.consoleLines, ...consolePending];
+      if (lines.length > MAX_CONSOLE_LINES) lines.splice(0, lines.length - MAX_CONSOLE_LINES);
+      consolePending = [];
+      patch.consoleLines = lines;
+    }
+    if (pendingExecLine !== undefined) {
+      patch.execLine = pendingExecLine;
+      pendingExecLine = undefined;
+    }
+    if (pendingSender !== undefined) {
+      patch.sender = pendingSender;
+      pendingSender = undefined;
+    }
+    if (Object.keys(patch).length) commit(patch);
   };
 
-  const pushConsole = (entry) => {
-    consolePending.push(entry);
-    if (!consoleFlushTimer) {
-      consoleFlushTimer = setTimeout(flushConsole, CONSOLE_FLUSH_MS);
+  const scheduleFlush = () => {
+    if (!flushRaf) flushRaf = requestAnimationFrame(flush);
+  };
+
+  let nextConsoleId = 1; // stable React keys: survive ring-buffer trims
+  const pushConsole = (dir, text) => {
+    consolePending.push({ id: nextConsoleId++, dir, text });
+    scheduleFlush();
+  };
+
+  const setExecLine = (ln) => {
+    // only move forward (acks arrive in order; sender.received fallback may lag)
+    if (pendingExecLine === undefined && ln > (snapshot.execLine ?? 0)) {
+      pendingExecLine = ln;
+      scheduleFlush();
+    } else if (pendingExecLine !== undefined && ln > pendingExecLine) {
+      pendingExecLine = ln;
     }
   };
 
@@ -83,6 +109,7 @@ export function createMachineStateStore() {
     },
 
     clearConsole() {
+      consolePending = [];
       commit({ consoleLines: [] });
     },
 
@@ -139,32 +166,38 @@ export function createMachineStateStore() {
         });
       });
 
-      connection.on('workflow:state', (workflowState) => commit({ workflowState }));
+      connection.on('workflow:state', (workflowState) => {
+        // setExecLine only moves forward, so a new run must clear the previous
+        // job's line or the viewer stays stuck on the last line.
+        if (workflowState === 'running') {
+          pendingExecLine = undefined;
+          commit({ workflowState, execLine: null });
+          return;
+        }
+        commit({ workflowState });
+      });
 
       connection.on('sender:status', (sender) => {
-        // received = lines GRBL has ACKed → the command currently being executed.
+        // received = lines GRBL has ACKed (accepted into the planner).
         // sent = lines streamed into GRBL's planner buffer (leads the cutter).
-        // execLine's primary source is the real per-ack (ln=N) echoes; this is
-        // the coarse fallback between echoes (and for non-fork servers).
-        if (snapshot.execLine == null || (sender?.received ?? 0) > snapshot.execLine) {
-          commit({ sender: sender || null, execLine: sender?.received ?? null });
-        } else {
-          commit({ sender: sender || null });
-        }
+        // Folded into the same animation frame as console lines.
+        pendingSender = sender || null;
+        if (sender?.received != null) setExecLine(sender.received);
+        scheduleFlush();
       });
 
       connection.on('serialport:read', (line) => {
         const text = String(line);
-        pushConsole({ dir: 'in', text });
+        pushConsole('in', text);
         // Real per-line ack from the fork patch: "> G1 X10 (ln=47)" = GRBL
         // finished line 47. Real data exclusively drives execLine + console.
         const m = /^> .+\(ln=(\d+)\)$/.exec(text);
         if (m) {
-          commit({ execLine: Number(m[1]) });
+          setExecLine(Number(m[1]));
         }
       });
       connection.on('serialport:write', (data) =>
-        pushConsole({ dir: 'out', text: String(data).replace(/\n$/, '') }));
+        pushConsole('out', String(data).replace(/\n$/, '')));
     }
   };
 

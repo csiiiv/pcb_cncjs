@@ -85,7 +85,7 @@ export class CNCConnection {
     ['startup', 'error'].forEach((e) => this.socket.on(e, relay(e)));
     ['serialport:list', 'serialport:open', 'serialport:close', 'serialport:error',
       'serialport:read', 'serialport:write', 'controller:state', 'controller:settings', 'workflow:state',
-      'sender:status', 'feeder:status'].forEach((e) =>
+      'sender:status', 'feeder:status', 'autolevel:update', 'autolevel:complete'].forEach((e) =>
       this.socket.on(e, relay(e))
     );
   }
