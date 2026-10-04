@@ -119,8 +119,10 @@ body {
 }
 .widget-close:hover { color: var(--alarm); }
 .widget-body { padding: 10px 12px; overflow: auto; flex: 1; min-height: 0; }
-.widget-body-flex { display: flex; flex-direction: column; }
-.widget-body-flex > .viz-widget { flex: 1; min-height: 0; }
+.widget-body-flex { display: flex; flex-direction: column; overflow: hidden; }
+/* every widget root stretches to fill its (possibly resized) slot; inner
+   scrollable regions (console, gcode list) own their scrolling */
+.widget-body-flex > .widget { flex: 1; min-height: 0; }
 
 .widget-resize-grip {
   height: 10px;
@@ -291,12 +293,12 @@ button.toggle.on { border-color: var(--accent); color: var(--accent); background
 .sel-actions button { padding: 2px 8px; font-size: 11px; }
 
 /* G-code preview */
-.gcode-widget { display: flex; flex-direction: column; min-height: 140px; }
-.gcode-widget .gcode-list { flex: 1; min-height: 100px; height: auto; }
+.gcode-widget { display: flex; flex-direction: column; min-height: 0; }
+.gcode-widget .gcode-list { flex: 1 1 0; min-height: 0; height: auto; }
 .gcode-list {
   background: #0b0e13; border: 1px solid var(--panel-edge); border-radius: 8px;
   font-family: var(--mono); font-size: 12px;
-  height: 240px; overflow-y: auto; padding: 6px 0; flex-shrink: 0;
+  height: auto; overflow-y: auto; padding: 6px 0;
 }
 .gcode-line { display: flex; gap: 10px; padding: 1px 10px; cursor: pointer; white-space: pre; }
 .gcode-line:hover { background: #161d28; }
@@ -315,8 +317,9 @@ button.toggle.on { border-color: var(--accent); color: var(--accent); background
 .lg-buf { color: var(--accent); margin-left: 8px; }
 
 /* Console */
-.console-widget { display: flex; flex-direction: column; min-height: 120px; }
-.console-widget .console { flex: 1; min-height: 80px; height: auto; }
+/* Console: fills the slot; the log region itself scrolls */
+.console-widget { display: flex; flex-direction: column; min-height: 0; }
+.console-widget .console { flex: 1 1 0; min-height: 0; height: auto; }
 
 /* Job Runner */
 .run-controls { display: flex; gap: 10px; align-items: center; padding: 8px 0; }
@@ -356,7 +359,7 @@ button.toggle.on { border-color: var(--accent); color: var(--accent); background
 .console {
   background: #0b0e13; border: 1px solid var(--panel-edge); border-radius: 8px;
   font-family: var(--mono); font-size: 12px;
-  padding: 10px; height: 180px; overflow-y: auto;
+  padding: 10px; height: auto; overflow-y: auto;
 }
 .console-line { white-space: pre-wrap; color: #a9b4c4; padding: 1px 0; }
 .console-line .dir-tag { display: inline-block; width: 14px; color: #4a5568; }

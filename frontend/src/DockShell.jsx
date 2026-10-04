@@ -13,9 +13,9 @@ const WIDGETS = {
   status: { title: 'Status', component: StatusWidget },
   controls: { title: 'Machine Controls', component: MachineControlsWidget },
   visualizer: { title: 'Toolpath', component: VisualizerWidget, grow: true, flex: true },
-  gcode: { title: 'G-code', component: GcodePreviewWidget, grow: true },
+  gcode: { title: 'G-code', component: GcodePreviewWidget, grow: true, flex: true, defaultHeight: 300 },
   runner: { title: 'Job Runner', component: JobRunnerWidget },
-  console: { title: 'Console', component: ConsoleWidget, grow: true }
+  console: { title: 'Console', component: ConsoleWidget, grow: true, flex: true, defaultHeight: 260 }
 };
 
 const DEFAULT_LAYOUT = {
@@ -178,7 +178,7 @@ export default function DockShell() {
             <div
               className={`widget-slot ${drag?.id === id ? 'dragging' : ''}`}
               data-widget={id}
-              style={heights[id] ? { height: heights[id], flex: '0 0 auto' } : undefined}
+              style={(heights[id] ?? W.defaultHeight) ? { height: heights[id] ?? W.defaultHeight, flex: '0 0 auto' } : undefined}
               onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget({ zone, index: i }); }}
             >
               {/* visualizer flexes to fill unset space in the center column;
@@ -194,10 +194,10 @@ export default function DockShell() {
                 <span className="widget-title">{W.title}</span>
                 <button className="widget-close" onClick={() => closeWidget(id)} title="close widget">×</button>
               </div>
-              <div
-                className={`widget-body ${W.flex ? 'widget-body-flex' : ''}`}
-                style={heights[id] ? { overflow: 'auto' } : undefined}
-              >
+              {/* flex widgets (visualizer, g-code, console) stretch to the slot
+                  and scroll internally; content widgets size to content and the
+                  body scrolls if a manual height clamps below natural */}
+              <div className={`widget-body ${W.flex ? 'widget-body-flex' : ''}`}>
                 <W.component />
               </div>
               <div
