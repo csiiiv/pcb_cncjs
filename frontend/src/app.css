@@ -362,3 +362,5 @@ button.toggle.on { border-color: var(--accent); color: var(--accent); background
 .console-line .dir-tag { display: inline-block; width: 14px; color: #4a5568; }
 .console-line.dir-out { color: #7fa3d9; }
 .console-line.dir-out .dir-tag { color: #7fa3d9; }
+.console-line.dir-job { color: #ffb454; }
+.console-line.dir-job .dir-tag { color: #ffb454; }

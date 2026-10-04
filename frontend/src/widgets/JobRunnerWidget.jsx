@@ -2,7 +2,7 @@
 // Safety (brief §40): requires port connected + a loaded job + explicit Start.
 // Start is double-gated: first click arms, second click within 4s runs.
 import { useEffect, useState } from 'react';
-import { useMachineState, jobRunner } from '../cnc/runtime.js';
+import { useMachineState, jobRunner, store } from '../cnc/runtime.js';
 import { useViz, setViz } from '../visualizer/vizStore.js';
 
 export default function JobRunnerWidget() {
@@ -34,6 +34,7 @@ export default function JobRunnerWidget() {
       if (!v.job) throw new Error('no job loaded in the visualizer');
       const status = await jobRunner.load(v.job.name, v.job.text);
       setLoaded({ name: v.job.name, total: status?.total ?? 0 });
+      store.setJobGcode(v.job.text.split(/\r?\n/)); // for the console job-feed
     } catch (err) {
       setError(err.message);
     }

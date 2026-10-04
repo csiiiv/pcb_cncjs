@@ -29,10 +29,10 @@ const initialSnapshot = () => ({
   workflowState: null,
   // Sender (job execution)
   sender: null, // { name, total, sent, received, startTime, elapsedTime, remainingTime, ... }
-  // True execution line: parsed from CNCjs console echoes "> line (ln=N)".
-  // This is the line GRBL just ACKed (finished) — unlike sender.sent which
-  // counts lines streamed into GRBL's lookahead buffer (leads the cutter).
+  // True execution line: sender.received (GRBL-acked). Falls back to sent.
   execLine: null,
+  // Job g-code lines (for the simulated console feed + viewer fallback)
+  jobGcodeLines: [],
   // Raw console lines (serialport:read/write), newest last
   consoleLines: []
 });
@@ -54,12 +54,59 @@ export function createMachineStateStore() {
     commit({ consoleLines: lines });
   };
 
+  // Interpolated job-line console feed. The server's sender bypasses
+  // serialport:write for job lines AND only emits sender:status on state
+  // change (250ms poll) — a 1s job yields ~2 events total. To make job
+  // progress visible in the console at human speed, we simulate per-line
+  // output between the coarse sender:status updates we do receive.
+  let jobFeed = null; // { from, to, t0, durationMs, total }
+  let feedTimer = null;
+
+  const startJobFeed = (fromLine, toLine, elapsedRef) => {
+    stopJobFeed();
+    if (toLine <= fromLine) return;
+    const duration = Math.max(500, (toLine - fromLine) * 120); // ~120ms/line pacing
+    jobFeed = { from: fromLine, to: toLine, t0: Date.now(), durationMs: duration };
+    const jobLines = snapshot.jobGcodeLines || [];
+    const tick = () => {
+      if (!jobFeed) return;
+      const k = Math.min(1, (Date.now() - jobFeed.t0) / jobFeed.durationMs);
+      const target = Math.floor(jobFeed.from + k * (jobFeed.to - jobFeed.from));
+      while (jobFeed.current < target && jobFeed.current < jobFeed.to) {
+        jobFeed.current++;
+        const text = jobLines[jobFeed.current - 1];
+        if (text !== undefined && text.trim()) {
+          pushConsole({ dir: 'job', text: text.trim() });
+        }
+      }
+      if (k < 1) feedTimer = setTimeout(tick, 100);
+    };
+    jobFeed.current = fromLine;
+    feedTimer = setTimeout(tick, 100);
+  };
+
+  const stopJobFeed = () => {
+    if (feedTimer) clearTimeout(feedTimer);
+    feedTimer = null;
+    jobFeed = null;
+  };
+
   const store = {
     getSnapshot: () => snapshot,
 
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
+    },
+
+    /** Provide the job's g-code lines (called when a job is loaded into the sender). */
+    setJobGcode(lines) {
+      commit({ jobGcodeLines: lines || [] });
+    },
+
+    clearConsole() {
+      stopJobFeed();
+      commit({ consoleLines: [] });
     },
 
     // Wire a CNCConnection's events into this store.
@@ -115,12 +162,20 @@ export function createMachineStateStore() {
         });
       });
 
-      connection.on('workflow:state', (workflowState) => commit({ workflowState }));
+      connection.on('workflow:state', (workflowState) => {
+        if (workflowState === 'idle') stopJobFeed();
+        commit({ workflowState });
+      });
 
       connection.on('sender:status', (sender) => {
+        const prev = snapshot.sender;
         // received = lines GRBL has ACKed → the command currently being executed.
         // sent = lines streamed into GRBL's planner buffer (leads the cutter).
         commit({ sender: sender || null, execLine: sender?.received ?? null });
+        // simulated per-line console feed between coarse status updates
+        if (sender && prev && sender.sent > (prev.received ?? 0) && sender.total > 0) {
+          startJobFeed(prev.received ?? 0, sender.sent);
+        }
       });
 
       connection.on('serialport:read', (line) => pushConsole({ dir: 'in', text: String(line) }));

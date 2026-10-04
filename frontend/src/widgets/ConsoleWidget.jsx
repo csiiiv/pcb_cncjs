@@ -1,6 +1,6 @@
 // Serial console: raw serialport:read lines.
 import { useEffect, useRef, useState } from 'react';
-import { useMachineState } from '../cnc/runtime.js';
+import { useMachineState, store } from '../cnc/runtime.js';
 
 export default function ConsoleWidget() {
   const snap = useMachineState();
@@ -9,7 +9,7 @@ export default function ConsoleWidget() {
 
   useEffect(() => {
     if (autoscroll && ref.current) ref.current.scrollTop = ref.current.scrollHeight;
-  }, [snap.consoleLines, autoscroll]);
+  }); // every render: commits can arrive in bursts (job feed ticks) — always re-stick
 
   return (
     <section className="widget console-widget">
@@ -20,6 +20,7 @@ export default function ConsoleWidget() {
           <input type="checkbox" checked={autoscroll} onChange={(e) => setAutoscroll(e.target.checked)} />
           autoscroll
         </label>
+        <button onClick={() => store.clearConsole()} title="clear console">Clear</button>
       </div>
       <div className="console" ref={ref}>
         {snap.consoleLines.length === 0 && <div className="hint">no serial traffic yet</div>}
@@ -29,7 +30,7 @@ export default function ConsoleWidget() {
             <div key={i} className="console-line">{entry}</div>
           ) : (
             <div key={i} className={`console-line dir-${entry.dir}`}>
-              <span className="dir-tag">{entry.dir === 'out' ? '>' : '<'}</span>
+              <span className="dir-tag">{entry.dir === 'out' ? '>' : entry.dir === 'job' ? '»' : '<'}</span>
               {entry.text}
             </div>
           )
