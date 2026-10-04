@@ -8,6 +8,7 @@ import { triangularLattice } from '../probe/lattice.js';
 import { refineCandidates } from '../probe/refine.js';
 import { makeVertexId } from '../probe/mesh.js';
 import { fmtAxis } from '../cnc/state.js';
+import NumField from '../ui/NumField.jsx';
 
 const num = (v) => {
   const n = Number(v);
@@ -32,7 +33,13 @@ export default function AutolevelWidget() {
   const [maxY, setMaxY] = useState(50);
   const [spacing, setSpacing] = useState(10);
 
-  const bounds = { minX, maxX, minY, maxY };
+  // normalize so partially-typed / inverted bounds can't poison refine + lattice
+  const bounds = {
+    minX: Math.min(minX, maxX),
+    maxX: Math.max(minX, maxX),
+    minY: Math.min(minY, maxY),
+    maxY: Math.max(minY, maxY),
+  };
   const measured = probe.vertices.filter((p) => Number.isFinite(Number(p.z))).length;
   const pending = probe.vertices.length - measured;
 
@@ -131,7 +138,7 @@ export default function AutolevelWidget() {
   };
 
   const modal = open && createPortal(
-    <div className="modal-backdrop" onMouseDown={() => setOpen(false)}>
+    <div className="modal-backdrop side" onMouseDown={() => setOpen(false)}>
       <div className="modal-panel" role="dialog" aria-label="Autolevel setup" onMouseDown={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <h2>Autolevel mesh</h2>
@@ -147,21 +154,21 @@ export default function AutolevelWidget() {
             <section>
               <h3>Probe motion</h3>
               <div className="probe-fields cols-2">
-                <label>Clearance<input type="number" step="0.1" value={clearanceZ} onChange={(e) => setClearanceZ(num(e.target.value))} /></label>
-                <label>Start Z<input type="number" step="0.1" value={startZ} onChange={(e) => setStartZ(num(e.target.value))} /></label>
-                <label>Probe to<input type="number" step="0.1" value={endZ} onChange={(e) => setEndZ(num(e.target.value))} /></label>
-                <label>Feed<input type="number" step="1" value={feedrate} onChange={(e) => setFeedrate(num(e.target.value))} /></label>
+                <NumField label="Clearance" value={clearanceZ} onChange={setClearanceZ} />
+                <NumField label="Start Z" value={startZ} onChange={setStartZ} />
+                <NumField label="Probe to" value={endZ} onChange={setEndZ} />
+                <NumField label="Feed" value={feedrate} onChange={setFeedrate} />
               </div>
               <p className="hint">Each point rapids to clearance, drops to start Z, then probes to the end Z. First point uses half feed.</p>
             </section>
             <section>
               <h3>Board &amp; mesh</h3>
               <div className="probe-fields cols-2">
-                <label>Min X<input type="number" step="1" value={minX} onChange={(e) => setMinX(num(e.target.value))} /></label>
-                <label>Max X<input type="number" step="1" value={maxX} onChange={(e) => setMaxX(num(e.target.value))} /></label>
-                <label>Min Y<input type="number" step="1" value={minY} onChange={(e) => setMinY(num(e.target.value))} /></label>
-                <label>Max Y<input type="number" step="1" value={maxY} onChange={(e) => setMaxY(num(e.target.value))} /></label>
-                <label>Mesh spacing<input type="number" step="0.5" min="0.5" value={spacing} onChange={(e) => setSpacing(Math.max(0.5, num(e.target.value)))} /></label>
+                <NumField label="Min X" value={minX} onChange={setMinX} />
+                <NumField label="Max X" value={maxX} onChange={setMaxX} />
+                <NumField label="Min Y" value={minY} onChange={setMinY} />
+                <NumField label="Max Y" value={maxY} onChange={setMaxY} />
+                <NumField label="Mesh spacing" value={spacing} onChange={(s) => setSpacing(Math.max(0.5, s))} />
               </div>
               <div className="probe-row">
                 <button disabled={!v.job} onClick={useJobBounds}>Use job bounds</button>

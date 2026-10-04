@@ -1,6 +1,7 @@
 // Single-axis touch probe, laid out like the CNCjs Probe widget.
 import { useState } from 'react';
 import { useStoreSelector, probeCommands } from '../cnc/runtime.js';
+import NumField from '../ui/NumField.jsx';
 
 const num = (v, fallback = 0) => {
   const n = Number(v);
@@ -58,10 +59,10 @@ export default function ProbeWidget() {
       <p className="hint">{COMMAND_HINT[command]}</p>
 
       <div className="probe-fields cols-2">
-        <label>Depth<input type="number" min="0" step="0.1" value={depth} onChange={(e) => setDepth(num(e.target.value))} /></label>
-        <label>Feed<input type="number" min="1" step="1" value={feedrate} onChange={(e) => setFeedrate(num(e.target.value, 50))} /></label>
-        <label>Plate thickness<input type="number" min="0" step="0.01" value={plate} onChange={(e) => setPlate(num(e.target.value))} /></label>
-        <label>Retract<input type="number" min="0" step="0.1" value={retract} onChange={(e) => setRetract(num(e.target.value))} /></label>
+        <NumField label="Depth" value={depth} onChange={setDepth} />
+        <NumField label="Feed" value={feedrate} onChange={(f) => setFeedrate(Math.max(1, f))} />
+        <NumField label="Plate thickness" value={plate} onChange={setPlate} />
+        <NumField label="Retract" value={retract} onChange={setRetract} />
       </div>
 
       <div className="probe-row">

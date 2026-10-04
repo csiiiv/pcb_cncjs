@@ -411,6 +411,28 @@ button.toggle.on { border-color: var(--accent); color: var(--accent); background
   justify-content: center;
   padding: 24px;
 }
+/* sidebar-docked variant: overlaps only the sidebar column so the toolpath
+   viewer (and Alt+click mesh refinement) stays visible and interactive */
+.modal-backdrop.side {
+  left: auto;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(400px, 100vw);
+  align-items: stretch;
+  justify-content: flex-end;
+  padding: 0;
+  background: rgba(6, 8, 12, 0.25);
+}
+.modal-backdrop.side .modal-panel {
+  width: 100%;
+  max-height: none;
+  height: 100%;
+  border-radius: 0;
+  border: none;
+  border-left: 1px solid var(--panel-edge);
+  box-shadow: -12px 0 40px rgba(0, 0, 0, 0.4);
+}
 .modal-panel {
   width: min(820px, 100%);
   max-height: min(860px, calc(100vh - 48px));
