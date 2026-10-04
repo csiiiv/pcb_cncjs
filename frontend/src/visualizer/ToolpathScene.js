@@ -197,8 +197,9 @@ export class ToolpathScene {
   }
 
   #setupOrbit() {
-    // minimal orbit/pan/zoom — no external controls dependency
+    // simple orbit/pan/zoom — no external controls dependency
     const dom = this.renderer.domElement;
+    this.#orbitUnbind = null;
     this.orbit = {
       target: new THREE.Vector3(0, 0, 0),
       spherical: null,
@@ -246,7 +247,7 @@ export class ToolpathScene {
     dom.addEventListener('wheel', onWheel, { passive: false });
     dom.addEventListener('contextmenu', onCtx);
 
-    this.#unbindEvents = () => {
+    this.#orbitUnbind = () => {
       dom.removeEventListener('mousedown', onDown);
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
@@ -272,12 +273,15 @@ export class ToolpathScene {
     this.onSelect({ pathId, segmentId, sourceLine });
   }
 
+  #orbitUnbind = null;
   #onResize = null;
   #bindEvents() {
     this.#onResize = () => this.resize();
     window.addEventListener('resize', this.#onResize);
   }
   #unbindEvents() {
+    this.#orbitUnbind?.();
+    this.#orbitUnbind = null;
     if (this.#onResize) window.removeEventListener('resize', this.#onResize);
   }
 
