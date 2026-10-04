@@ -84,7 +84,7 @@ export class CNCConnection {
     const relay = (event) => (...args) => this.#emitLocal(event, ...args);
     ['startup', 'error'].forEach((e) => this.socket.on(e, relay(e)));
     ['serialport:list', 'serialport:open', 'serialport:close', 'serialport:error',
-      'serialport:read', 'controller:state', 'controller:settings', 'workflow:state',
+      'serialport:read', 'serialport:write', 'controller:state', 'controller:settings', 'workflow:state',
       'sender:status', 'feeder:status'].forEach((e) =>
       this.socket.on(e, relay(e))
     );

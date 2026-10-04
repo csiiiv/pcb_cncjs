@@ -33,7 +33,7 @@ const initialSnapshot = () => ({
   // This is the line GRBL just ACKed (finished) — unlike sender.sent which
   // counts lines streamed into GRBL's lookahead buffer (leads the cutter).
   execLine: null,
-  // Raw console lines (serialport:read), newest last
+  // Raw console lines (serialport:read/write), newest last
   consoleLines: []
 });
 
@@ -123,7 +123,9 @@ export function createMachineStateStore() {
         commit({ sender: sender || null, execLine: sender?.received ?? null });
       });
 
-      connection.on('serialport:read', (line) => pushConsole(String(line)));
+      connection.on('serialport:read', (line) => pushConsole({ dir: 'in', text: String(line) }));
+      connection.on('serialport:write', (data) =>
+        pushConsole({ dir: 'out', text: String(data).replace(/\n$/, '') }));
     }
   };
 

@@ -359,3 +359,6 @@ button.toggle.on { border-color: var(--accent); color: var(--accent); background
   padding: 10px; height: 180px; overflow-y: auto;
 }
 .console-line { white-space: pre-wrap; color: #a9b4c4; padding: 1px 0; }
+.console-line .dir-tag { display: inline-block; width: 14px; color: #4a5568; }
+.console-line.dir-out { color: #7fa3d9; }
+.console-line.dir-out .dir-tag { color: #7fa3d9; }

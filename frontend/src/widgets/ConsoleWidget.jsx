@@ -22,10 +22,18 @@ export default function ConsoleWidget() {
         </label>
       </div>
       <div className="console" ref={ref}>
-        {snap.consoleLines.length === 0 && <div className="hint">no serial data yet</div>}
-        {snap.consoleLines.map((line, i) => (
-          <div key={i} className="console-line">{line}</div>
-        ))}
+        {snap.consoleLines.length === 0 && <div className="hint">no serial traffic yet</div>}
+        {snap.consoleLines.map((entry, i) =>
+          typeof entry === 'string' ? (
+            // legacy string entries (pre-direction format)
+            <div key={i} className="console-line">{entry}</div>
+          ) : (
+            <div key={i} className={`console-line dir-${entry.dir}`}>
+              <span className="dir-tag">{entry.dir === 'out' ? '>' : '<'}</span>
+              {entry.text}
+            </div>
+          )
+        )}
       </div>
     </section>
   );
