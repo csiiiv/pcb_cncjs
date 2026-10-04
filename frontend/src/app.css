@@ -259,3 +259,29 @@ button.toggle.on {
 @media (max-width: 860px) {
   .layout { grid-template-columns: 1fr; }
 }
+.gcode-panel { display: flex; flex-direction: column; }
+.gcode-list {
+  background: #0b0e13;
+  border: 1px solid var(--panel-edge);
+  border-radius: 8px;
+  font-family: var(--mono);
+  font-size: 12px;
+  height: 260px;
+  overflow-y: auto;
+  padding: 6px 0;
+}
+.gcode-line {
+  display: flex;
+  gap: 10px;
+  padding: 1px 10px;
+  cursor: pointer;
+  white-space: pre;
+}
+.gcode-line:hover { background: #161d28; }
+.gcode-line.active { background: #1d2836; outline: 1px solid #2c3a50; }
+.gcode-line .ln { color: #4a5568; width: 34px; text-align: right; flex-shrink: 0; }
+.gcode-line .txt { color: #a9b4c4; }
+.gcode-line.kind-cut .txt { color: #d7dde6; }
+.gcode-line.kind-rapid .txt { color: #5b6b82; font-style: italic; }
+.gcode-line.kind-other .txt { color: #6b7689; }
+.gcode-line.kind-cut.active .txt { color: #ffb454; }

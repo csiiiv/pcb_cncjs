@@ -206,6 +206,7 @@ export class ToolpathScene {
       const isSelected = pid === selected;
       entry.segments.forEach((line) => {
         line.visible = !hidden;
+        if (line.userData.__preview) return; // preview flash wins over selection tint
         // selected: white-hot; a selection exists: others dimmed; no selection: full color
         if (isSelected) {
           line.material.color.set(0xffffff);
@@ -309,6 +310,54 @@ export class ToolpathScene {
     this.toolMarker.add(mkT(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, 6), 0x888888));
     this.toolMarker.visible = false;
     this.overlayGroup.add(this.toolMarker);
+
+    // preview cursor marker (step-through): amber dot + drop line, distinct from live tool
+    this.previewMarker = new THREE.Group();
+    const mkP = (a, b, c, opacity = 1) => {
+      const g = new THREE.BufferGeometry().setFromPoints([a, b]);
+      return new THREE.Line(
+        g,
+        new THREE.LineBasicMaterial({ color: c, transparent: true, opacity })
+      );
+    };
+    const p = 0.7;
+    this.previewMarker.add(mkP(new THREE.Vector3(-p, 0, 0), new THREE.Vector3(p, 0, 0), 0xffb454));
+    this.previewMarker.add(mkP(new THREE.Vector3(0, -p, 0), new THREE.Vector3(0, p, 0), 0xffb454));
+    this.previewMarker.add(mkP(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, 5), 0xffb454, 0.4));
+    this.previewMarker.visible = false;
+    this.overlayGroup.add(this.previewMarker);
+    this.#previewLineObjs = [];
+  }
+
+  // --- step-through preview cursor ---
+  // entries: [{pathId, segmentId}] for the current source line, or null to clear.
+  // Flashes those segments amber and moves the preview marker to the line's end point.
+  setPreviewCursor(entries, endPos) {
+    // restore previously flashed segments to normal appearance
+    this.#previewLineObjs.forEach((l) => l.userData.__preview = false);
+    this.#previewLineObjs = [];
+    this.#applyVisibility();
+
+    if (!entries?.length) {
+      this.previewMarker.visible = false;
+      return null;
+    }
+
+    for (const { pathId, segmentId } of entries) {
+      const line = this.pathObjects.get(pathId)?.segments.get(segmentId);
+      if (line) {
+        line.userData.__preview = true;
+        line.material.color.set(0xffb454);
+        line.material.opacity = 1;
+        line.material.transparent = false;
+        this.#previewLineObjs.push(line);
+      }
+    }
+    if (endPos) {
+      this.previewMarker.position.set(endPos.x, endPos.y, endPos.z);
+      this.previewMarker.visible = true;
+    }
+    return entries[0];
   }
 
   // --- rulers (brief §17: coordinate grid) ---
@@ -542,6 +591,7 @@ export class ToolpathScene {
     this.#regionStart = null;
   }
 
+  #previewLineObjs = [];
   #orbitUnbind = null;
   #onResize = null;
   #regionStart = null;

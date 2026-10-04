@@ -4,6 +4,7 @@ import { createMachineStateStore, fmtAxis, stateColor } from './cnc/state.js';
 import { MachineCommands } from './cnc/commands.js';
 import MachineControls from './machine/MachineControls.jsx';
 import VisualizerPanel from './visualizer/VisualizerPanel.jsx';
+import GcodePreviewPanel from './visualizer/GcodePreviewPanel.jsx';
 import './app.css';
 
 const connection = new CNCConnection({ serverUrl: '' }); // same-origin via Vite proxy
@@ -245,6 +246,8 @@ export default function App() {
   const snap = useMachineState();
   const [increment, setIncrement] = useState(1);
   const vizSceneRef = useRef(null);
+  const [job, setJob] = useState(null);
+  const [vizSelection, setVizSelection] = useState(null);
 
   // Live tool position → visualizer marker (from machine state stream)
   useEffect(() => {
@@ -289,7 +292,17 @@ export default function App() {
           enabled={Boolean(snap.connectedPort)}
           activeState={snap.activeState}
         />
-        <VisualizerPanel sceneRef={vizSceneRef} />
+        <VisualizerPanel
+          sceneRef={vizSceneRef}
+          onJobLoaded={setJob}
+          selection={vizSelection}
+          onSelect={setVizSelection}
+        />
+        <GcodePreviewPanel
+          job={job}
+          selection={vizSelection}
+          onSelectSegment={(segs, end) => vizSceneRef.current?.setPreviewCursor(segs, end)}
+        />
         <Console />
       </main>
     </div>

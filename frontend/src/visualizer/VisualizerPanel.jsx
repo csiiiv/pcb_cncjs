@@ -3,21 +3,31 @@ import { useEffect, useRef, useState } from 'react';
 import { parseGcode, pathLength } from '../jobs/parseGcode.js';
 import ToolpathCanvas from './ToolpathCanvas.jsx';
 
-export default function VisualizerPanel({ sceneRef: externalSceneRef }) {
+export default function VisualizerPanel({
+  sceneRef: externalSceneRef,
+  onJobLoaded,
+  selection: externalSelection,
+  onSelect: externalOnSelect
+}) {
   const localSceneRef = useRef(null);
   const sceneRef = externalSceneRef ?? localSceneRef;
   const fileRef = useRef(null);
-  const [job, setJob] = useState(null);
-  const [selection, setSelection] = useState(null); // {pathId,segmentId} | {region, pathIds[]} | null
+  const [internalJob, setInternalJob] = useState(null);
+  const [internalSelection, setInternalSelection] = useState(null);
   const [error, setError] = useState(null);
+  const job = internalJob;
+  const selection = externalSelection !== undefined ? externalSelection : internalSelection;
+  const setSelection = externalOnSelect ?? setInternalSelection;
 
   const loadFile = async (file) => {
     try {
       setError(null);
       const text = await file.text();
       const parsed = parseGcode(text);
-      setJob({ ...parsed, name: file.name, text });
+      const fullJob = { ...parsed, name: file.name, text };
+      setInternalJob(fullJob);
       setSelection(null);
+      onJobLoaded?.(fullJob);
       const scene = sceneRef.current;
       if (scene) {
         scene.setJob(parsed);
