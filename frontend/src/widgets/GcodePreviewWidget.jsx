@@ -94,6 +94,12 @@ export default function GcodePreviewWidget() {
           ↑/↓ step · click line = show in 3D{activeLine != null ? ` · line ${activeLine}` : ''}
         </span>
         <span className="spacer" />
+        {workflowRunning && (
+          <span className="hint legend">
+            <span className="lg lg-exec">■</span> executing
+            <span className="lg lg-buf">■</span> in buffer
+          </span>
+        )}
         <label className="hint">
           <input type="checkbox" checked={followRun} onChange={(e) => setFollowRun(e.target.checked)} />
           follow run
@@ -104,17 +110,22 @@ export default function GcodePreviewWidget() {
         </label>
       </div>
       <div className="gcode-list" ref={listRef}>
-        {lines.map((l) => (
-          <div
-            key={l.lineNo}
-            data-line={l.lineNo}
-            className={`gcode-line kind-${l.kind} ${l.lineNo === activeLine ? 'active' : ''}`}
-            onClick={() => setActiveLine(l.lineNo)}
-          >
-            <span className="ln">{l.lineNo}</span>
-            <span className="txt">{l.text}</span>
-          </div>
-        ))}
+        {lines.map((l) => {
+          const inBuffer =
+            workflowRunning && execLine != null && sentLine > execLine &&
+            l.lineNo > execLine && l.lineNo <= sentLine;
+          return (
+            <div
+              key={l.lineNo}
+              data-line={l.lineNo}
+              className={`gcode-line kind-${l.kind} ${l.lineNo === activeLine ? 'active' : ''} ${inBuffer ? 'in-buffer' : ''}`}
+              onClick={() => setActiveLine(l.lineNo)}
+            >
+              <span className="ln">{l.lineNo}</span>
+              <span className="txt">{l.text}</span>
+            </div>
+          );
+        })}
       </div>
     </section>
   );

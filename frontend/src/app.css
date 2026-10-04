@@ -308,6 +308,12 @@ button.toggle.on { border-color: var(--accent); color: var(--accent); background
 .gcode-line.kind-rapid .txt { color: #5b6b82; font-style: italic; }
 .gcode-line.kind-other .txt { color: #6b7689; }
 .gcode-line.kind-cut.active .txt { color: #ffb454; }
+.gcode-line.in-buffer { background: rgba(79, 156, 249, 0.10); }
+.gcode-line.in-buffer .ln { color: var(--accent); }
+.legend { display: flex; align-items: center; gap: 4px; }
+.legend .lg { font-size: 10px; }
+.lg-exec { color: #ffb454; }
+.lg-buf { color: var(--accent); margin-left: 8px; }
 
 /* Console */
 .console-widget { display: flex; flex-direction: column; min-height: 120px; }

@@ -117,16 +117,13 @@ export function createMachineStateStore() {
 
       connection.on('workflow:state', (workflowState) => commit({ workflowState }));
 
-      connection.on('sender:status', (sender) => commit({ sender: sender || null }));
-
-      connection.on('serialport:read', (line) => {
-        pushConsole(String(line));
-        // true execution tracking: "> G1 X10 (ln=47)" fires when GRBL acks line 47
-        const m = /^> .*\(ln=(\d+)\)$/.exec(String(line));
-        if (m) {
-          commit({ execLine: Number(m[1]) });
-        }
+      connection.on('sender:status', (sender) => {
+        // received = lines GRBL has ACKed → the command currently being executed.
+        // sent = lines streamed into GRBL's planner buffer (leads the cutter).
+        commit({ sender: sender || null, execLine: sender?.received ?? null });
       });
+
+      connection.on('serialport:read', (line) => pushConsole(String(line)));
     }
   };
 

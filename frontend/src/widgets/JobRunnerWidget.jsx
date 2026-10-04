@@ -18,6 +18,8 @@ export default function JobRunnerWidget() {
   const paused = workflow === 'paused';
   const busy = running || paused;
   const sender = snap.sender;
+  const execLine = snap.execLine;
+  const sentLine = sender?.sent ?? 0;
 
   // arming timeout
   useEffect(() => {
@@ -115,8 +117,11 @@ export default function JobRunnerWidget() {
                 <span className="hint">
                   line {sender?.sent ?? 0}/{sender?.total ?? loaded?.total ?? 0}
                 </span>
-                {snap.execLine != null && (
-                  <span className="hint">executing ln {snap.execLine}</span>
+                {execLine != null && (
+                  <span className="hint">
+                    executing ln {execLine}
+                    {sentLine > execLine ? ` (+${sentLine - execLine} buffered)` : ''}
+                  </span>
                 )}
                 <span className="hint">elapsed {fmtTime(sender?.elapsedTime)}</span>
                 <span className="hint">remaining {fmtTime(sender?.remainingTime)}</span>
