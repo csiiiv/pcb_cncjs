@@ -85,6 +85,23 @@ export function createMachineStateStore() {
     feedTimer = setTimeout(tick, 100);
   };
 
+  const drainJobFeed = () => {
+    // job actually finished (workflow idle): dump ALL remaining lines NOW so a
+    // 1s job still shows its full stream instead of being cut off mid-replay
+    if (!jobFeed) return;
+    if (feedTimer) clearTimeout(feedTimer);
+    feedTimer = null;
+    const jobLines = snapshot.jobGcodeLines || [];
+    while (jobFeed.current < jobFeed.to) {
+      jobFeed.current++;
+      const text = jobLines[jobFeed.current - 1];
+      if (text !== undefined && text.trim()) {
+        pushConsole({ dir: 'job', text: text.trim() });
+      }
+    }
+    jobFeed = null;
+  };
+
   const stopJobFeed = () => {
     if (feedTimer) clearTimeout(feedTimer);
     feedTimer = null;
@@ -163,18 +180,21 @@ export function createMachineStateStore() {
       });
 
       connection.on('workflow:state', (workflowState) => {
-        if (workflowState === 'idle') stopJobFeed();
+        if (workflowState === 'idle') drainJobFeed();
         commit({ workflowState });
       });
 
       connection.on('sender:status', (sender) => {
         const prev = snapshot.sender;
+        const running = snapshot.workflowState === 'running' || snapshot.workflowState === 'paused';
         // received = lines GRBL has ACKed → the command currently being executed.
         // sent = lines streamed into GRBL's planner buffer (leads the cutter).
         commit({ sender: sender || null, execLine: sender?.received ?? null });
-        // simulated per-line console feed between coarse status updates
-        if (sender && prev && sender.sent > (prev.received ?? 0) && sender.total > 0) {
-          startJobFeed(prev.received ?? 0, sender.sent);
+        // simulated per-line console feed: runs from last-shown line up to the
+        // newest sent count (works even when status updates arrive in big jumps)
+        if (sender && sender.total > 0 && running) {
+          const from = jobFeed ? jobFeed.current : Math.max(0, sender.received - 1);
+          if (sender.sent > from) startJobFeed(from, sender.sent);
         }
       });
 
