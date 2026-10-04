@@ -167,6 +167,36 @@ table.kv tr:last-child td { border-bottom: none; }
 /* Console */
 .console-panel { grid-column: 1 / -1; }
 
+/* Visualizer */
+.viz-panel { grid-column: 1 / -1; display: flex; flex-direction: column; }
+.viz-container {
+  width: 100%;
+  height: 420px;
+  background: #0b0e13;
+  border: 1px solid var(--panel-edge);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.viz-container canvas { display: block; }
+.viz-container.loading::after {
+  content: 'initializing 3D view…';
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--muted);
+  font-size: 12px;
+}
+.selection-info {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text);
+  background: #0b0e13;
+  border: 1px solid var(--panel-edge);
+  border-radius: 6px;
+  padding: 6px 10px;
+}
+
 /* Jog cluster */
 .jog-cluster {
   display: flex;

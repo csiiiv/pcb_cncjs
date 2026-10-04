@@ -3,6 +3,7 @@ import { CNCConnection, ConnectionState } from './cnc/connection.js';
 import { createMachineStateStore, fmtAxis, stateColor } from './cnc/state.js';
 import { MachineCommands } from './cnc/commands.js';
 import MachineControls from './machine/MachineControls.jsx';
+import VisualizerPanel from './visualizer/VisualizerPanel.jsx';
 import './app.css';
 
 const connection = new CNCConnection({ serverUrl: '' }); // same-origin via Vite proxy
@@ -243,6 +244,18 @@ function Console() {
 export default function App() {
   const snap = useMachineState();
   const [increment, setIncrement] = useState(1);
+  const vizSceneRef = useRef(null);
+
+  // Live tool position → visualizer marker (from machine state stream)
+  useEffect(() => {
+    if (vizSceneRef.current && snap.wpos) {
+      vizSceneRef.current.setToolPosition({
+        x: Number(snap.wpos.x),
+        y: Number(snap.wpos.y),
+        z: Number(snap.wpos.z)
+      });
+    }
+  }, [snap.wpos]);
 
   // Explicit delegation — do NOT spread the class instance (methods live on
   // the prototype and would be lost).
@@ -262,7 +275,7 @@ export default function App() {
     <div className="app">
       <header className="app-header">
         <h1>PCB CNC</h1>
-        <span className="tag">Phase 2 — basic controls</span>
+        <span className="tag">Phase 3 — visualizer</span>
         <span className={`tag ${stateColor(snap.activeState)}`}>
           {snap.connectedPort ? snap.activeState ?? '—' : 'port closed'}
         </span>
@@ -276,6 +289,7 @@ export default function App() {
           enabled={Boolean(snap.connectedPort)}
           activeState={snap.activeState}
         />
+        <VisualizerPanel sceneRef={vizSceneRef} />
         <Console />
       </main>
     </div>
