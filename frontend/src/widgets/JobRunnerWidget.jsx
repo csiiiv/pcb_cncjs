@@ -115,6 +115,9 @@ export default function JobRunnerWidget() {
                 <span className="hint">
                   line {sender?.sent ?? 0}/{sender?.total ?? loaded?.total ?? 0}
                 </span>
+                {snap.execLine != null && (
+                  <span className="hint">executing ln {snap.execLine}</span>
+                )}
                 <span className="hint">elapsed {fmtTime(sender?.elapsedTime)}</span>
                 <span className="hint">remaining {fmtTime(sender?.remainingTime)}</span>
               </div>

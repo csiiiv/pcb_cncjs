@@ -37,14 +37,17 @@ export default function GcodePreviewWidget() {
     }
   }, [v.selection, followSelection]);
 
-  // live run tracking: sender's current line -> active line + 3D cursor
+  // live run tracking: TRUE execution line (GRBL-acked) preferred over sender.sent (buffered ahead)
+  const execLine = snap.execLine;
   const sentLine = snap.sender?.sent ?? 0;
-  const workflowRunning = snap.workflowState === 'running';
+  const workflowRunning = snap.workflowState === 'running' || snap.workflowState === 'paused';
   useEffect(() => {
-    if (!followRun || !workflowRunning || !job || !sentLine) return;
-    const text = job.text.split(/\r?\n/)[sentLine - 1];
-    if (text !== undefined) setActiveLine(sentLine);
-  }, [sentLine, workflowRunning, followRun, job]);
+    if (!followRun || !workflowRunning || !job) return;
+    const trackLine = execLine ?? sentLine;
+    if (!trackLine) return;
+    const text = job.text.split(/\r?\n/)[trackLine - 1];
+    if (text !== undefined) setActiveLine(trackLine);
+  }, [execLine, sentLine, workflowRunning, followRun, job]);
 
   useEffect(() => {
     if (activeLine == null) return;

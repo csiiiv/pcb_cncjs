@@ -29,6 +29,10 @@ const initialSnapshot = () => ({
   workflowState: null,
   // Sender (job execution)
   sender: null, // { name, total, sent, received, startTime, elapsedTime, remainingTime, ... }
+  // True execution line: parsed from CNCjs console echoes "> line (ln=N)".
+  // This is the line GRBL just ACKed (finished) — unlike sender.sent which
+  // counts lines streamed into GRBL's lookahead buffer (leads the cutter).
+  execLine: null,
   // Raw console lines (serialport:read), newest last
   consoleLines: []
 });
@@ -115,7 +119,14 @@ export function createMachineStateStore() {
 
       connection.on('sender:status', (sender) => commit({ sender: sender || null }));
 
-      connection.on('serialport:read', (line) => pushConsole(String(line)));
+      connection.on('serialport:read', (line) => {
+        pushConsole(String(line));
+        // true execution tracking: "> G1 X10 (ln=47)" fires when GRBL acks line 47
+        const m = /^> .*\(ln=(\d+)\)$/.exec(String(line));
+        if (m) {
+          commit({ execLine: Number(m[1]) });
+        }
+      });
     }
   };
 
