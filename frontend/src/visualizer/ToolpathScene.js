@@ -74,6 +74,7 @@ export class ToolpathScene {
     this.clearJob();
     if (!job) return;
     this.hiddenPathIds.clear();
+    this.#buildRulers(job.bounds);
 
     for (const path of job.paths) {
       const color = PATH_COLORS[(path.id - 1) % PATH_COLORS.length];
@@ -123,6 +124,41 @@ export class ToolpathScene {
     if (!this.toolMarker) return;
     this.toolMarker.position.set(pos.x, pos.y, pos.z);
     this.toolMarker.visible = true;
+  }
+
+  // --- view presets (brief §17: zoom/pan/orbit companions) ---
+  setView(name) {
+    const target = this.orbit.target.clone();
+    const r = Math.max(this.camera.position.distanceTo(target), 5);
+    const dirs = {
+      top: new THREE.Vector3(0, 0, 1),       // PCB plan view: X right, Y up
+      left: new THREE.Vector3(-1, 0, 0),     // from -X looking +X
+      right: new THREE.Vector3(1, 0, 0),     // from +X looking -X
+      iso: new THREE.Vector3(1, -1, 0.85)    // classic isometric corner
+    };
+    const dir = dirs[name];
+    if (!dir) return;
+    dir.normalize();
+    this.#viewAnim = {
+      from: this.camera.position.clone(),
+      to: target.clone().addScaledVector(dir, r),
+      fromTarget: target.clone(),
+      toTarget: target.clone(),
+      t0: performance.now(),
+      dur: 350
+    };
+  }
+
+  #viewAnim = null;
+  #stepViewAnim() {
+    const a = this.#viewAnim;
+    if (!a) return;
+    const k = Math.min(1, (performance.now() - a.t0) / a.dur);
+    const e = k * k * (3 - 2 * k); // smoothstep ease
+    this.camera.position.lerpVectors(a.from, a.to, e);
+    this.orbit.target.lerpVectors(a.fromTarget, a.toTarget, e);
+    this.camera.lookAt(this.orbit.target);
+    if (k >= 1) this.#viewAnim = null;
   }
 
   highlightPath(pathId) {
@@ -250,11 +286,16 @@ export class ToolpathScene {
     axes.add(mk(new THREE.Vector3(0, 10, 0), 0x55ff88));
     axes.add(mk(new THREE.Vector3(0, 0, 10), 0x5588ff));
     this.overlayGroup.add(axes);
+    this.axesGroup = axes;
 
     // grid in XY plane at z=0 (PCB plane), 10mm cells
     const grid = new THREE.GridHelper(200, 20, 0x2a3342, 0x1c2430);
     grid.rotation.x = Math.PI / 2; // GridHelper is XZ by default
     this.overlayGroup.add(grid);
+
+    // rulers (built per-job in #buildRulers)
+    this.rulerGroup = new THREE.Group();
+    this.overlayGroup.add(this.rulerGroup);
 
     // tool position marker: small crosshair + vertical line
     this.toolMarker = new THREE.Group();
@@ -268,6 +309,81 @@ export class ToolpathScene {
     this.toolMarker.add(mkT(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, 6), 0x888888));
     this.toolMarker.visible = false;
     this.overlayGroup.add(this.toolMarker);
+  }
+
+  // --- rulers (brief §17: coordinate grid) ---
+  #niceStep(range, targetTicks = 10) {
+    const raw = range / targetTicks;
+    const pow = Math.pow(10, Math.floor(Math.log10(raw)));
+    const candidates = [1, 2, 5, 10].map((m) => m * pow);
+    return candidates.find((c) => c >= raw) || 10 * pow;
+  }
+
+  #makeLabel(text) {
+    // canvas sprite: crisp text labels for ruler ticks
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    const font = '24px "SF Mono", Consolas, monospace';
+    ctx.font = font;
+    const w = Math.ceil(ctx.measureText(text).width) + 8;
+    canvas.width = w;
+    canvas.height = 32;
+    ctx.font = font;
+    ctx.fillStyle = '#7a8699';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, 4, 16);
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.minFilter = THREE.LinearFilter;
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true }));
+    sprite.scale.set((w / 32) * 1.6, 1.6, 1);
+    return sprite;
+  }
+
+  #buildRulers(bounds) {
+    // clear previous rulers
+    this.rulerGroup.traverse((o) => {
+      if (o.material?.map) o.material.map.dispose();
+      if (o.geometry) o.geometry.dispose();
+    });
+    this.rulerGroup.clear();
+
+    const pad = Math.max((bounds.max.x - bounds.min.x), (bounds.max.y - bounds.min.y), 5) * 0.08;
+    const minX = Math.min(0, bounds.min.x) - pad;
+    const maxX = Math.max(0, bounds.max.x) + pad;
+    const minY = Math.min(0, bounds.min.y) - pad;
+    const maxY = Math.max(0, bounds.max.y) + pad;
+
+    const step = this.#niceStep(Math.max(maxX - minX, maxY - minY));
+
+    const tickLen = Math.max(step * 0.22, 0.5);
+    const tickMat = new THREE.LineBasicMaterial({ color: 0x7a8699, transparent: true, opacity: 0.7 });
+    const pts = [];
+    const labels = [];
+
+    const fmt = (v) => (step < 1 ? v.toFixed(1).replace(/\.0$/, '') : String(Math.round(v)));
+
+    for (let x = Math.ceil(minX / step) * step; x <= maxX; x += step) {
+      const xr = Math.round(x / step) * step; // dodge float drift
+      pts.push(xr, minY, 0, xr, minY - tickLen, 0);
+      if (Math.abs(xr) > 1e-9) {
+        const s = this.#makeLabel(fmt(xr));
+        s.position.set(xr, minY - tickLen * 2.2, 0);
+        labels.push(s);
+      }
+    }
+    for (let y = Math.ceil(minY / step) * step; y <= maxY; y += step) {
+      const yr = Math.round(y / step) * step;
+      pts.push(minX, yr, 0, minX - tickLen, yr, 0);
+      if (Math.abs(yr) > 1e-9) {
+        const s = this.#makeLabel(fmt(yr));
+        s.position.set(minX - tickLen * 2.4, yr, 0);
+        labels.push(s);
+      }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+    this.rulerGroup.add(new THREE.LineSegments(geo, tickMat));
+    labels.forEach((l) => this.rulerGroup.add(l));
   }
 
   #setupOrbit() {
@@ -431,6 +547,9 @@ export class ToolpathScene {
   }
 
   #animate = () => {
-    this.renderer.setAnimationLoop(() => this.renderer.render(this.scene, this.camera));
+    this.renderer.setAnimationLoop(() => {
+      this.#stepViewAnim();
+      this.renderer.render(this.scene, this.camera);
+    });
   };
 }

@@ -77,6 +77,15 @@ export default function VisualizerPanel({ sceneRef: externalSceneRef }) {
         <span className="hint">shift+drag = region select</span>
         <span className="spacer" />
         {job && (
+          <span className="view-buttons">
+            {['top', 'left', 'right', 'iso'].map((v) => (
+              <button key={v} onClick={() => sceneRef.current?.setView(v)} title={`view: ${v}`}>
+                {v === 'iso' ? 'ISO' : v[0].toUpperCase() + v.slice(1)}
+              </button>
+            ))}
+          </span>
+        )}
+        {job && (
           <>
             <button onClick={() => sceneRef.current?.showAll()}>Show All</button>
             <button onClick={() => onSelect(null)}>Clear selection</button>

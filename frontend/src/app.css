@@ -200,6 +200,8 @@ table.kv tr:last-child td { border-bottom: none; }
 .sel-actions { display: flex; gap: 6px; }
 .sel-actions button { padding: 2px 8px; font-size: 11px; }
 .spacer { flex: 1; }
+.view-buttons { display: flex; gap: 4px; }
+.view-buttons button { padding: 3px 8px; font-size: 11px; }
 
 /* Jog cluster */
 .jog-cluster {
