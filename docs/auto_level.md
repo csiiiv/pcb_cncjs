@@ -1,5 +1,69 @@
 Build or substantially improve the application's **PCB autolevel / surface probing component**.
 
+# Implementation Status
+
+> Reviewed 2026-11-17. The subsystem lives in `frontend/src/probe/` plus the
+> Autolevel widget; backend support is in the `cncjs/` fork's `GrblController`.
+
+The backend is a separate ignored checkout and is not downloaded with this
+repository. See [development setup](development.md). Measured vertices are
+held in memory; save a heightmap before reloading. A saved workflow checklist
+does not restore the surface or verify that its physical reference is current.
+
+What exists today:
+
+```text
+Section                          Implemented as
+─────────────────────────────────────────────────────────────────────────
+Coordinate system (work coords)  probe results converted server-side, stored
+                                 on mesh vertices in work coordinates
+Initial probe mesh (§3)          probe/lattice.js — staggered triangular
+                                 lattice, mandatory corners, clamped edges
+Vertices authoritative (§4)      probe/store.js — vertices persist; triangles
+                                 derived and rebuilt on every edit
+Delaunay triangulation (§5)      probe/mesh.js — delaunator
+Interactive mesh editor (§6)     Autolevel modal docks over the sidebar; the
+                                 3D view stays visible while editing
+Adaptive refinement (§7–9)       probe/refine.js — modular candidate engine
+                                 (centroid / longest-edge / circumcenter with
+                                 auto strategy + min-spacing rejection)
+Manual placement                 Add Free Point (exact crosshair XY) and Add
+                                 Centroid Point (engine candidate) modes;
+                                 typed X/Y entry; per-point removal
+Probe execution (§10)            autolevel:start points mode (≤ 2000 pts);
+                                 confirmation shows travel + tour length;
+                                 travel-optimized order (probe/tour.js:
+                                 nearest-neighbor + 2-opt vs serpentine vs
+                                 exact ≤ 12); progress + cancel
+Probe data model (§11)           z + valid live on vertices; heightmap
+                                 save/load/compare (probe/heightmapFile.js)
+Probe repeatability              Repeatability test modal (burst/cycled),
+                                 per-spot + pooled σ, drift, grading
+                                 (probe/repeatability.js)
+Linear surface (§12)             probe/surface.js — barycentric getZ over
+                                 fully-measured triangles; null outside
+Surface visualization (§13)      tinted mesh over toolpath, colormaps, Z
+                                 labels, travel path, layer checklist
+Compensation (§14)               probe/compensate.js — cutting moves
+                                 subdivided (~2 mm), rapids untouched,
+                                 outside-hull points REJECTED (no
+                                 extrapolation); apply/revert keeps the
+                                 nominal original
+Reuse across operations          heightmap files reload into any session's
+                                 mesh with measurements intact
+```
+
+Still open (the "Desired Advanced Version"):
+
+- smooth/cubic (Clough–Tocher) surface + hybrid linear/cubic evaluation with
+  overshoot protection;
+- interpolation-disagreement and confidence/uncertainty layers;
+- error-driven refinement candidate scoring (surface-aware signals);
+- toolpath-aware refinement weighting;
+- post-probe automatic refinement recommendations / auto-refine.
+
+The numbered sections below are the original design brief, unchanged.
+
 Work from the existing codebase and reuse its current machine-control, visualization, state-management, G-code, and UI architecture wherever practical. Do not redesign unrelated parts of the application merely to match assumptions in this prompt.
 
 The goal is to create an autolevel system optimized for **PCB isolation milling**, where very small changes in PCB surface height can materially affect cutting depth.

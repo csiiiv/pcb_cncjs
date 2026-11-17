@@ -1,37 +1,55 @@
+import { ParameterLabel } from '../ui/InfoIcon.jsx';
+import { parameterHelp } from '../ui/parameterHelp.js';
+import { useDefaultState } from '../settings/store.js';
 // Autolevel: authoritative probe mesh (vertices + Delaunay triangles).
 // Dock slot = summary; Setup opens the modal mesh editor.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useStoreSelector, probeStore, probeCommands, useProbe, fmtAxis } from '../cnc/runtime.js';
-import { useViz, setViz } from '../visualizer/vizStore.js';
+import { useStoreSelector, probeStore, probeCommands, useProbe, fmtAxis, store, machineCommands } from '../cnc/runtime.js';
+import { useViz, setVizPref } from '../visualizer/vizStore.js';
+import { applyJobCompensation, revertJobCompensation } from '../visualizer/jobCompensation.js';
+import { COLORMAPS, legendGradient } from '../probe/colormap.js';
 import { triangularLattice } from '../probe/lattice.js';
 import { refineCandidates } from '../probe/refine.js';
-import { makeVertexId } from '../probe/mesh.js';
+import { makeVertexId, hullCoversBounds } from '../probe/mesh.js';
 import { buildSurface } from '../probe/surface.js';
-import { compensateGcode } from '../probe/compensate.js';
-import { parseGcode } from '../jobs/parseGcode.js';
+import { planProbeOrder, tourLengthOf } from '../probe/tour.js';
+import { requestProbeStart } from '../probe/wiring.js';
+import { serializeHeightmap, parseHeightmap, downloadHeightmap } from '../probe/heightmapFile.js';
+import HeightmapCompareModal from './HeightmapCompareModal.jsx';
+import RepeatabilityTestModal from './RepeatabilityTestModal.jsx';
+import { ResizeEdge, useModalStack, useModalWidth, isTopModal } from '../ui/ModalKit.jsx';
 import NumField from '../ui/NumField.jsx';
 
 export default function AutolevelWidget() {
   const port = useStoreSelector((s) => s.connectedPort);
+  const activeState = useStoreSelector((s) => s.activeState);
+  const workflow = useStoreSelector((s) => s.workflowState);
+  const jobBusy = ['running', 'paused'].includes(workflow);
   const probe = useProbe(probeStore);
   const v = useViz();
   const [open, setOpen] = useState(false);
   const [armed, setArmed] = useState(false);
+  const [clearArmed, setClearArmed] = useState(false);
   const [error, setError] = useState(null);
 
-  const [clearanceZ, setClearanceZ] = useState(3);
-  const [startZ, setStartZ] = useState(1);
-  const [endZ, setEndZ] = useState(-2);
-  const [feedrate, setFeedrate] = useState(50);
-  const [minX, setMinX] = useState(0);
-  const [maxX, setMaxX] = useState(50);
-  const [minY, setMinY] = useState(0);
-  const [maxY, setMaxY] = useState(50);
-  const [spacing, setSpacing] = useState(10);
-  const [margin, setMargin] = useState(2);
-  const [point, setPoint] = useState({ x: 0, y: 0 });
-  const [manual, setManual] = useState([]); // history of manual adds for the list UI
+  const [clearanceZ, setClearanceZ] = useDefaultState('autolevel', 'clearanceZ');
+  const [startZ, setStartZ] = useDefaultState('autolevel', 'startZ');
+  const [endZ, setEndZ] = useDefaultState('autolevel', 'endZ');
+  const [feedrate, setFeedrate] = useDefaultState('autolevel', 'feedrate');
+  const [minX, setMinX] = useDefaultState('autolevel', 'minX');
+  const [maxX, setMaxX] = useDefaultState('autolevel', 'maxX');
+  const [minY, setMinY] = useDefaultState('autolevel', 'minY');
+  const [maxY, setMaxY] = useDefaultState('autolevel', 'maxY');
+  const [spacing, setSpacing] = useDefaultState('autolevel', 'spacing');
+  const [margin, setMargin] = useDefaultState('autolevel', 'margin');
+  const [manual, setManual] = useState([]); // click-placed points: {id,x,y}
+  const [editMode, setEditMode] = useState(null); // null | 'add' | 'refine'
+  const [compareOpen, setCompareOpen] = useState(false);
+  const [testOpen, setTestOpen] = useState(false);
+  const loadFileRef = useRef(null);
+  const [modalWidth, setModalWidth] = useModalWidth('autolevel', 400);
+  useModalStack(open, 'autolevel');
 
   // normalize so partially-typed / inverted bounds can't poison refine + lattice
   const bounds = {
@@ -43,27 +61,62 @@ export default function AutolevelWidget() {
   const measured = probe.vertices.filter((p) => Number.isFinite(Number(p.z))).length;
   const pending = probe.vertices.length - measured;
 
-  // Rebuild the lattice from bounds + spacing, preserving every measured
-  // vertex whose position still exists in the new lattice.
-  const regenerate = useCallback(() => {
-    const keep = new Map(probe.vertices
-      .filter((p) => Number.isFinite(Number(p.z)))
-      .map((p) => [`${Math.round(p.x * 100)}:${Math.round(p.y * 100)}`, p]));
-    const lattice = triangularLattice(bounds, spacing).map((p) => {
-      const old = keep.get(`${Math.round(p.x * 100)}:${Math.round(p.y * 100)}`);
-      return old ? { ...old } : { id: makeVertexId(), x: p.x, y: p.y };
+  // Live coverage pre-check: cutting moves outside the probe hull get REJECTED
+  // by compensation only after a full probe pass. Catch it now instead.
+  const coverage = useMemo(() => {
+    if (!v.job?.bounds || probe.vertices.length < 3) return null;
+    return hullCoversBounds(probe.vertices, {
+      minX: v.job.bounds.min.x, maxX: v.job.bounds.max.x,
+      minY: v.job.bounds.min.y, maxY: v.job.bounds.max.y
     });
-    probeStore.setMesh(lattice, bounds);
+  }, [v.job, probe.vertices]);
+  const uncovered = coverage && !coverage.covered && probe.running === false;
+
+  // Rebuild the lattice from bounds + spacing. Measured lattice vertices are
+  // preserved when their position still exists in the new lattice; manual /
+  // refine-placed vertices ALWAYS survive — they are placement intent, not
+  // derived from bounds/spacing, so a rebuild must never drop them.
+  const regenerate = useCallback(() => {
+    const key = (x, y) => `${Math.round(x * 100)}:${Math.round(y * 100)}`;
+    const keepMeasured = new Map(probe.vertices
+      .filter((p) => Number.isFinite(Number(p.z)) && !p.manual)
+      .map((p) => [key(p.x, p.y), p]));
+    const keepManual = new Map(probe.vertices
+      .filter((p) => p.manual)
+      .map((p) => [key(p.x, p.y), p]));
+    const lattice = triangularLattice(bounds, spacing).flatMap((p) => {
+      const old = keepMeasured.get(key(p.x, p.y));
+      if (old) return [{ ...old }];
+      // don't duplicate a manual vertex sitting exactly on a lattice spot
+      if (keepManual.has(key(p.x, p.y))) return [];
+      return [{ id: makeVertexId(), x: p.x, y: p.y }];
+    });
+    probeStore.setMesh([...lattice, ...keepManual.values()], bounds);
   }, [minX, maxX, minY, maxY, spacing, probe.vertices]);
 
   const regenerateRef = useRef(regenerate);
   regenerateRef.current = regenerate;
 
-  // Closing the modal applies any bounds/spacing edits; while open, edits are
-  // explicit (Regenerate button) so typing half-finished numbers is safe.
+  // Closing the modal applies any bounds/spacing edits — but ONLY if they
+  // changed since the modal opened. An unconditional rebuild on every close
+  // would drop manually placed points (now preserved) and unmeasured lattice
+  // points (disposable), so we snapshot on open and diff on close.
+  const lastAppliedRef = useRef(null);
   useEffect(() => {
-    if (open) return;
-    regenerateRef.current();
+    if (open) {
+      // freeze the values as they were when the modal session began (only
+      // on the false→true transition; later edits while open keep it)
+      if (lastAppliedRef.current === null) {
+        lastAppliedRef.current = { minX, maxX, minY, maxY, spacing };
+      }
+      return;
+    }
+    const last = lastAppliedRef.current;
+    if (last === null) return; // never opened yet — nothing to apply
+    const changed = last.minX !== minX || last.maxX !== maxX || last.minY !== minY
+      || last.maxY !== maxY || last.spacing !== spacing;
+    lastAppliedRef.current = null; // consumed
+    if (changed) regenerateRef.current();
   }, [open, minX, maxX, minY, maxY, spacing]);
 
   useEffect(() => {
@@ -73,33 +126,132 @@ export default function AutolevelWidget() {
   }, [armed]);
 
   useEffect(() => {
+    if (!clearArmed) return undefined;
+    const t = setTimeout(() => setClearArmed(false), 4000);
+    return () => clearTimeout(t);
+  }, [clearArmed]);
+
+  useEffect(() => {
     if (!open) return undefined;
-    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
+    const onKey = (e) => {
+      if (e.key === 'Escape' && isTopModal('autolevel')) setOpen(false);
+    };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [open]);
 
-  // Alt+click a probe triangle in the 3D view to refine it
+  // never leave an edit mode armed after the editor closes
+  useEffect(() => {
+    if (!open) setEditMode(null);
+  }, [open]);
+
+  // Refs keep the canvas listeners stable: #maybeSelect fires setViz on every
+  // plain mousedown (selection change → re-render), and re-subscribing the
+  // listeners mid-click loses the mousedown→click pairing, silently eating
+  // the click. With refs, mount/unmount depends only on the modal being open.
+  const sceneRef = useRef(null);
+  const boundsRef = useRef(bounds);
+  const modeRef = useRef(editMode);
+  sceneRef.current = v.scene;
+  boundsRef.current = bounds;
+  modeRef.current = editMode;
+
+  // The candidate previewed under the mouse (centroid mode). Clicking commits
+  // exactly what the preview shows — no re-computation surprises.
+  const candidateRef = useRef(null);
+
+  // Compute the refine-engine candidate for the triangle under a mouse
+  // event. Returns { x, y, triangle } or a { rejected, triangle } marker.
+  const candidateAt = (scene, e) => {
+    if (!scene?.probeMesh) return null;
+    const idx = scene.probeTriangleAt(e);
+    if (idx < 0) return null;
+    const cands = refineCandidates({
+      indices: scene.probeMesh.triangles[idx],
+      vertices: scene.probeMesh.vertices,
+      bounds: boundsRef.current,
+    });
+    if (!cands.length) return { rejected: true, triangle: idx };
+    return { x: cands[0].x, y: cands[0].y, triangle: idx };
+  };
+
+  // Mode cursor lifecycle: attach the placement crosshair when a mode is on.
+  useEffect(() => {
+    const scene = v.scene;
+    if (!open || !editMode || !scene?.startPlacing) return undefined;
+    scene.startPlacing(editMode === 'refine' ? 'centroid' : 'free');
+    return () => scene.stopPlacing?.();
+  }, [open, editMode, v.scene]);
+
+  // Mesh edit mode (auto_level.md §7): "add" places a vertex exactly where
+  // you click; "refine" commits the engine's candidate point (centroid /
+  // longest-edge midpoint) inside the triangle you click — the exact point
+  // the preview crosshair shows. Plain-click modes replace Alt+click, which
+  // Linux window managers swallow as window drag. A mousedown→mouseup move
+  // of ~4px or more counts as orbit/pan, not a click, so view adjustments
+  // never place points.
   useEffect(() => {
     const dom = document.querySelector('.viz-container canvas');
     if (!dom || !open) return undefined;
-    const onClick = (e) => {
-      if (!e.altKey) return;
-      const scene = v.scene;
-      const idx = scene?.probeTriangleAt?.(e);
-      if (idx == null || idx < 0) return;
-      const candidates = refineCandidates({
-        indices: scene.probeMesh.triangles[idx],
-        vertices: scene.probeMesh.vertices,
-        bounds,
-      });
-      if (candidates.length) {
-        probeStore.addVertices(candidates.map((p) => ({ id: makeVertexId(), x: p.x, y: p.y })));
-      }
+    let down = null;
+    const onMove = (e) => {
+      if (!modeRef.current) return;
+      const scene = sceneRef.current;
+      if (!scene?.updatePlacing) return;
+      candidateRef.current = modeRef.current === 'refine' ? candidateAt(scene, e) : null;
+      scene.updatePlacing(e, candidateRef.current ?? undefined);
     };
+    const onDown = (e) => {
+      down = { x: e.clientX, y: e.clientY };
+    };
+    const onClick = (e) => {
+      if (!down) return;
+      const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y);
+      down = null;
+      const mode = modeRef.current;
+      if (!mode || moved >= 4 || e.button !== 0) return;
+      const scene = sceneRef.current;
+      if (!scene?.probeMesh) return;
+      if (mode === 'refine') {
+        const cand = candidateRef.current ?? candidateAt(scene, e);
+        if (!cand || cand.rejected || !Number.isFinite(cand.x)) return;
+        const added = probeStore.addVertices([{ id: makeVertexId(), x: cand.x, y: cand.y, manual: true }]);
+        if (added.length) {
+          setManual((m) => [...m, added[0]]);
+          // refresh preview against the retriangulated mesh (usually turns
+          // red here: the new vertex is now inside minSpacing)
+          candidateRef.current = candidateAt(scene, e);
+          scene.updatePlacing?.(e, candidateRef.current ?? undefined);
+        }
+        return;
+      }
+      // 'add': exact placement at the clicked world coordinate
+      const p = scene.probeWorldAt(e);
+      if (!p) return;
+      const nv = { id: makeVertexId(), x: Math.round(p.x * 100) / 100, y: Math.round(p.y * 100) / 100, manual: true };
+      const added = probeStore.addVertices([nv]);
+      if (added.length) setManual((m) => [...m, nv]);
+    };
+    dom.addEventListener('mousemove', onMove);
+    dom.addEventListener('mousedown', onDown);
     dom.addEventListener('click', onClick);
-    return () => dom.removeEventListener('click', onClick);
-  }, [open, v.scene, bounds]);
+    return () => {
+      dom.removeEventListener('mousemove', onMove);
+      dom.removeEventListener('mousedown', onDown);
+      dom.removeEventListener('click', onClick);
+    };
+  }, [open]);
+
+  const clearAllPoints = () => {
+    if (!clearArmed) {
+      setClearArmed(true);
+      return;
+    }
+    setClearArmed(false);
+    lastRunOrderRef.current = null;
+    setManual([]);
+    probeStore.clearMesh();
+  };
 
   const useJobBounds = () => {
     const b = v.job?.bounds;
@@ -118,6 +270,38 @@ export default function AutolevelWidget() {
     ? Math.round((probe.progress.current / probe.progress.total) * 100)
     : 0;
 
+  // Optimized visiting order for the pending points, anchored at the current
+  // machine XY. Shown while armed (confirm step) and whenever the persistent
+  // travel-path toggle is on. During a run the sent tour is shown instead.
+  const lastRunOrderRef = useRef(null); // order actually sent to the machine
+
+  const travelInfo = useMemo(() => {
+    if (probe.running) {
+      return lastRunOrderRef.current; // the tour actually being executed
+    }
+    if (!armed && !v.prefs.showTravel) return null; // nobody's watching
+    const unmeasured = probe.vertices.filter((p) => !Number.isFinite(Number(p.z)));
+    if (unmeasured.length) {
+      const wpos = store.getSnapshot().wpos;
+      const start = wpos ? { x: Number(wpos.x), y: Number(wpos.y) } : null;
+      return { order: planProbeOrder(unmeasured, start), start };
+    }
+    // all measured — keep the completed tour up for review
+    return lastRunOrderRef.current;
+  }, [armed, probe.vertices, probe.running, v.prefs.showTravel]);
+
+  // Draw the travel line while armed or toggled on; clear otherwise.
+  useEffect(() => {
+    const scene = v.scene;
+    if (!scene?.setProbeOrder) return undefined;
+    if (!armed && !v.prefs.showTravel) {
+      scene.setProbeOrder([]);
+      return undefined;
+    }
+    scene.setProbeOrder(travelInfo?.order?.length >= 2 ? travelInfo.order : []);
+    return () => scene.setProbeOrder([]);
+  }, [armed, v.prefs.showTravel, travelInfo, v.scene]);
+
   const probeUnmeasured = () => {
     if (!armed) {
       setArmed(true);
@@ -125,18 +309,31 @@ export default function AutolevelWidget() {
     }
     setArmed(false);
     setError(null);
-    const targets = probe.vertices.filter((p) => !Number.isFinite(Number(p.z)));
-    if (!targets.length) {
+    const unmeasured = probe.vertices.filter((p) => !Number.isFinite(Number(p.z)));
+    if (!unmeasured.length) {
       setError('no new points to probe');
       return;
     }
-    try {
-      probeStore.begin('map');
-      probeCommands.startPoints(targets, motion);
-    } catch (err) {
-      setError(err.message);
-      probeStore.halt();
-    }
+    // travel-optimized order: nearest-neighbor+2-opt vs serpentine vs exact
+    // (small sets), anchored at the live machine XY. Order affects travel
+    // only — results are matched back to vertices by coordinates.
+    const wpos = store.getSnapshot().wpos;
+    const start = wpos ? { x: Number(wpos.x), y: Number(wpos.y) } : null;
+    const targets = planProbeOrder(unmeasured, start);
+    lastRunOrderRef.current = { order: targets, start };
+    requestProbeStart({
+      kind: 'map',
+      detail: `${targets.length} point${targets.length === 1 ? '' : 's'}`,
+      run: () => {
+        try {
+          probeStore.begin('map');
+          probeCommands.startPoints(targets, motion);
+        } catch (err) {
+          setError(err.message);
+          probeStore.halt();
+        }
+      }
+    });
   };
 
   const surface = useMemo(
@@ -144,56 +341,64 @@ export default function AutolevelWidget() {
     [probe.vertices, probe.triangles]
   );
 
-  const addManual = () => {
-    setError(null);
-    probeStore.addVertices([{ id: makeVertexId(), x: point.x, y: point.y }]);
-    setManual((m) => [...m, { ...point }]);
-    setPoint({ x: point.x + spacing, y: point.y }); // step X for quick rows
+  const removeManual = (p) => {
+    setManual((m) => m.filter((q) => q.id !== p.id));
+    probeStore.removeVertex(p.id); // actually deletes the mesh vertex
   };
 
-  const removeManual = (p) => {
-    // history entry only — the vertex stays until a lattice regenerate
-    setManual((m) => m.filter((q) => q.x !== p.x || q.y !== p.y));
+  // Load a saved heightmap: its measured points become the mesh (as manual
+  // vertices, so they survive regenerates), keeping their measurements.
+  const loadHeightmapFile = async (file) => {
+    try {
+      const hm = parseHeightmap(JSON.parse(await file.text()));
+      if (hm.bounds) {
+        setMinX(hm.bounds.minX); setMaxX(hm.bounds.maxX);
+        setMinY(hm.bounds.minY); setMaxY(hm.bounds.maxY);
+      }
+      const verts = hm.points.map((p) => ({ id: makeVertexId(), x: p.x, y: p.y, z: p.z, manual: true }));
+      probeStore.setMesh(verts, hm.bounds || bounds);
+      setManual(verts); // same objects — Remove works on the real ids
+      setError(null);
+    } catch (err) {
+      setError(`load map: ${err.message}`);
+    }
   };
 
   const applyCompensation = () => {
     setError(null);
-    if (!v.job?.text) {
-      setError('load G-code in the visualizer first');
-      return;
-    }
-    if (surface.triangleCount === 0) {
-      setError('no measured surface — probe first');
-      return;
-    }
-    const r = compensateGcode({ text: v.job.text, surface, maxSegLen: 2 });
-    if (r.outside.length) {
-      setError(
-        `${r.outside.length} cutting point${r.outside.length === 1 ? '' : 's'} outside the probed surface ` +
-        `(first: line ${r.outside[0].line} at ${fmtAxis(r.outside[0].x)}, ${fmtAxis(r.outside[0].y)}). ` +
-        'Expand or refine the mesh to cover the toolpath.'
-      );
-      return;
-    }
-    setViz({
-      job: { ...parseGcode(r.text), name: `${v.job.name || 'job'} (compensated)`, text: r.text },
-      selection: null,
-    });
+    if (['running', 'paused'].includes(store.getSnapshot().workflowState)) return;
+    try { applyJobCompensation(surface); }
+    catch (err) { setError(err.message); }
   };
 
-  if (open) return createPortal(
-    <div className="modal-backdrop side" onMouseDown={() => setOpen(false)}>
-      <div className="modal-panel" role="dialog" aria-label="Autolevel setup" onMouseDown={(e) => e.stopPropagation()}>
-        <div className="modal-head">
-          <h2>Autolevel mesh</h2>
-          <span className="hint">
-            {probe.vertices.length} vertices · {probe.triangles.length} triangles · {measured} measured
-          </span>
-          <span className="spacer" />
-          <button onClick={() => setOpen(false)} title="close">×</button>
-        </div>
+  if (open || compareOpen || testOpen) return createPortal(
+    <>
+      {open && (
+        <div className="modal-backdrop side" onMouseDown={() => setOpen(false)}>
+          <div
+            className="modal-panel"
+            role="dialog"
+            aria-label="Autolevel setup"
+            style={{ width: modalWidth }}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <ResizeEdge width={modalWidth} setWidth={setModalWidth} />
+            <div className="modal-head">
+              <h2>Autolevel mesh</h2>
+              <span className="hint">
+                {probe.vertices.length} vertices · {probe.triangles.length} triangles · {measured} measured
+              </span>
+              <span className="spacer" />
+              <button onClick={() => setOpen(false)} title="close">×</button>
+            </div>
         <div className="modal-body">
           {error && <div className="error">{error}</div>}
+          {uncovered && (
+            <div className="preflight warn">
+              Probe mesh does not cover the whole job — {coverage.missing.length} of 4 corners outside.
+              Compensation will reject those cutting moves. Use job bounds + margin, or expand Min/Max.
+            </div>
+          )}
           <div className="modal-cols">
             <section>
               <h3>Probe motion</h3>
@@ -213,25 +418,46 @@ export default function AutolevelWidget() {
                 <NumField label="Min Y" value={minY} onChange={setMinY} />
                 <NumField label="Max Y" value={maxY} onChange={setMaxY} />
                 <NumField label="Mesh spacing" value={spacing} onChange={(s) => setSpacing(Math.max(0.5, s))} />
-                <NumField label="Job margin" value={margin} onChange={(m) => setMargin(Math.max(0, m))} title="outward padding added by Use job bounds" />
+                <NumField label="Job margin" help={parameterHelp('autolevel', 'margin')} value={margin} onChange={(m) => setMargin(Math.max(0, m))} title="outward padding added by Use job bounds" />
               </div>
               <div className="probe-row">
                 <button disabled={!v.job} onClick={useJobBounds}>Use job bounds</button>
                 <button onClick={regenerate}>Regenerate lattice</button>
+                <button
+                  disabled={probe.running || probe.vertices.length === 0}
+                  onClick={clearAllPoints}
+                  title="remove every probe point and measurement so the map can be rebuilt"
+                >
+                  {clearArmed ? 'Confirm clear' : 'Clear all points'}
+                </button>
               </div>
-              <p className="hint">Alt+click a triangle in the 3D view to refine it. Measured points are kept.</p>
+              <p className="hint">
+                Toggle a mode, then click in the 3D view — a crosshair follows the mouse: <b>Add Free Point</b> places a vertex exactly at the crosshair; <b>Add Centroid Point</b> snaps to the engine's candidate (orange dot = where the point lands, outlined triangle = target; red = no valid candidate). Orbit/pan/zoom still work — dragging never places points.
+              </p>
               <h3>Manual points</h3>
-              <div className="probe-fields cols-2">
-                <NumField label="X" value={point.x} onChange={(x) => setPoint({ ...point, x })} />
-                <NumField label="Y" value={point.y} onChange={(y) => setPoint({ ...point, y })} />
-              </div>
               <div className="probe-row">
-                <button onClick={addManual}>Add point</button>
+                <span className="seg">
+                  <button
+                    className={editMode === 'add' ? 'on' : ''}
+                    onClick={() => setEditMode((m) => (m === 'add' ? null : 'add'))}
+                    title="click in the 3D view to place a probe vertex at the exact crosshair position"
+                  >
+                    {editMode === 'add' ? 'Placing free point…' : 'Add Free Point'}
+                  </button>
+                  <button
+                    className={editMode === 'refine' ? 'on' : ''}
+                    onClick={() => setEditMode((m) => (m === 'refine' ? null : 'refine'))}
+                    title="click a triangle in the 3D view; the engine inserts its candidate point at the previewed spot"
+                  >
+                    {editMode === 'refine' ? 'Placing centroid point…' : 'Add Centroid Point'}
+                  </button>
+                </span>
+                {manual.length > 0 && <span className="hint">{manual.length} placed</span>}
               </div>
               {manual.length > 0 && (
                 <div className="probe-list">
                   {manual.map((p) => (
-                    <div className="probe-row" key={`${p.x},${p.y}`}>
+                    <div className="probe-row" key={p.id}>
                       <span className="hint">{fmtAxis(p.x)}, {fmtAxis(p.y)}</span>
                       <span className="spacer" />
                       <button onClick={() => removeManual(p)}>Remove</button>
@@ -250,29 +476,87 @@ export default function AutolevelWidget() {
                 : 'no measured surface yet'}
             </span>
             <span className="spacer" />
-            <button disabled={!v.job || surface.triangleCount === 0} onClick={applyCompensation}
-              title="creates a compensated copy as a new job; the nominal G-code is untouched">
-              Apply compensation
+            <button disabled={jobBusy || !v.nominalJob || surface.triangleCount === 0} onClick={applyCompensation}
+              title="recomputes compensation from the original G-code">
+              {v.compensatedJob ? 'Reapply compensation' : 'Apply compensation'}
             </button>
+            {v.compensatedJob && <button disabled={jobBusy} onClick={() => {
+              if (!['running', 'paused'].includes(store.getSnapshot().workflowState)) {
+                revertJobCompensation(); setError(null);
+              }
+            }}>Revert compensation</button>}
           </div>
           <p className="hint">
             Cutting moves are subdivided (~2 mm) and Z-shifted onto the measured surface.
             Paths outside the probed area are rejected — expand the mesh instead.
           </p>
+
+          <h3>Height map display</h3>
+          <div className="probe-fields cols-2">
+            <label>
+              <ParameterLabel label="Colormap" help={parameterHelp('visualizer', 'colormap')} />
+              <select
+                value={v.prefs.colormap}
+                onChange={(e) => setVizPref('colormap', e.target.value)}
+              >
+                {Object.entries(COLORMAPS).map(([name, def]) => (
+                  <option key={name} value={name}>{def.label}</option>
+                ))}
+              </select>
+            </label>
+            <label className="check-label">
+              <input
+                type="checkbox"
+                checked={v.prefs.showZLabels}
+                onChange={(e) => setVizPref('showZLabels', e.target.checked)}
+              />
+              <ParameterLabel label="Show probe Z at vertices" help={parameterHelp('visualizer', 'showZLabels')} />
+            </label>
+            <label className="check-label">
+              <input
+                type="checkbox"
+                checked={v.prefs.showTravel}
+                onChange={(e) => setVizPref('showTravel', e.target.checked)}
+              />
+              <ParameterLabel label="Show travel path" help={parameterHelp('visualizer', 'showTravel')} />
+            </label>
+          </div>
+          {probe.results.length > 0 && probe.minZ != null && (
+            <div className="probe-row legend-row">
+              <span className="legend-swatch" style={{ background: legendGradient(v.prefs.colormap) }} />
+              <span className="hint">Z {fmtAxis(probe.minZ)} … {fmtAxis(probe.maxZ)}</span>
+            </div>
+          )}
         </div>
         <div className="modal-foot">
           <span className="hint">
-            {pending > 0 ? `${pending} new point${pending === 1 ? '' : 's'} to probe` : 'all points measured'}
+            {armed && travelInfo
+              ? `probe tour: ${travelInfo.order.length} points · ~${tourLengthOf(travelInfo.order, travelInfo.start).toFixed(0)} mm XY travel`
+              : pending > 0
+                ? `${pending} new point${pending === 1 ? '' : 's'} to probe`
+                : 'all points measured'}
             {probe.results.length > 0 && ` · Z ${fmtAxis(probe.minZ)} … ${fmtAxis(probe.maxZ)}${range != null ? ` (range ${fmtAxis(range)})` : ''}`}
           </span>
           <span className="spacer" />
+          <button onClick={() => setTestOpen(true)} title="probe the same spot repeatedly to measure repeatability">Test…</button>
           <button onClick={() => setOpen(false)}>Close</button>
           <button className="run-btn" disabled={!port || probe.running || pending === 0} onClick={probeUnmeasured}>
             {armed ? `Confirm probe (${pending})` : 'Probe new points'}
           </button>
         </div>
-      </div>
-    </div>,
+          </div>
+        </div>
+      )}
+      {/* sub-modals mount in the same portal so they layer ABOVE the autolevel
+          modal (portal children stack in mount order); rendered here instead
+          of the dock branch so they open even while this modal is closed */}
+      <HeightmapCompareModal open={compareOpen} onClose={() => setCompareOpen(false)} />
+      <RepeatabilityTestModal
+        open={testOpen}
+        onClose={() => setTestOpen(false)}
+        motionDefaults={{ clearanceZ, startZ, endZ, feedrate }}
+      />
+    </>,
     document.body
   );
 
@@ -286,6 +570,36 @@ export default function AutolevelWidget() {
           <button onClick={() => probeCommands.stop()} title="soft-resets GRBL to abort the probe">Stop</button>
         )}
       </div>
+      {/* Probe interrupted mid-pass (alarm/stop/port loss): unmeasured points
+          remain. Offer one-click unlock + resume instead of leaving the map
+          half-built with no explanation. */}
+      {!probe.running && pending > 0 && measured > 0 && activeState === 'Alarm' && (
+        <div className="preflight warn">
+          <span>
+            Probe interrupted — {pending} point{pending === 1 ? '' : 's'} unmeasured.
+          </span>
+          <button
+            className="inline"
+            disabled={!port}
+            onClick={() => {
+              try { machineCommands.unlock(); } catch { /* already unlocked */ }
+            }}
+          >
+            Unlock ($X)
+          </button>
+          <button className="inline" disabled={!port} onClick={probeUnmeasured}>
+            Resume probing ({pending})
+          </button>
+        </div>
+      )}
+      {uncovered && (
+        <div className="preflight warn" title="cutting moves outside the probe hull are rejected during compensation">
+          <span>
+            Probe mesh does not cover the whole job ({coverage.missing.length} corner{coverage.missing.length === 1 ? '' : 's'} outside).
+          </span>
+          <button className="inline" onClick={() => setOpen(true)}>Expand mesh…</button>
+        </div>
+      )}
       <div className="probe-row">
         <span className="hint">{probe.vertices.length} vertices · {measured} measured</span>
         {probe.results.length > 0 && (
@@ -295,11 +609,50 @@ export default function AutolevelWidget() {
       {probe.session === 'map' && probe.progress?.total > 0 && (
         <div className="progress-bar"><div className="progress-fill" style={{ width: `${progress}%` }} /></div>
       )}
-      {probe.results.length > 0 && (
+      {(probe.vertices.length > 0 || probe.results.length > 0) && (
         <div className="probe-row">
-          <button onClick={() => probeStore.clearResults()}>Clear measurements</button>
+          {probe.results.length > 0 && (
+            <button onClick={() => probeStore.clearResults()}>Clear measurements</button>
+          )}
+          {probe.vertices.length > 0 && (
+            <button
+              disabled={probe.running}
+              onClick={clearAllPoints}
+              title="remove every probe point and measurement so the map can be rebuilt"
+            >
+              {clearArmed ? 'Confirm clear' : 'Clear all points'}
+            </button>
+          )}
         </div>
       )}
+      <div className="probe-row">
+        <button
+          disabled={measured < 3}
+          title={measured < 3 ? 'need at least 3 measured points' : 'download the measured points as .heightmap.json'}
+          onClick={() => downloadHeightmap(serializeHeightmap({
+            name: `${v.job?.name ? v.job.name.replace(/\.[^.]*$/, '') + '-' : ''}map-${new Date().toISOString().slice(0, 16).replace('T', '_')}`,
+            bounds: probe.bounds,
+            spacing,
+            vertices: probe.vertices,
+          }))}
+        >
+          Save map
+        </button>
+        <button onClick={() => loadFileRef.current?.click()} title="load a saved heightmap into the current mesh">Load map</button>
+        <input
+          ref={loadFileRef}
+          type="file"
+          accept=".json"
+          style={{ display: 'none' }}
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) loadHeightmapFile(f);
+            e.target.value = '';
+          }}
+        />
+        <button onClick={() => setCompareOpen(true)} title="compare two saved heightmaps for reproducibility">Compare…</button>
+      </div>
+      <HeightmapCompareModal open={compareOpen} onClose={() => setCompareOpen(false)} />
     </section>
   );
 }

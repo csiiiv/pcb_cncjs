@@ -86,15 +86,13 @@ export default function VisualizerPanel({
         )}
         <span className="hint">shift+drag = region · ctrl+drag or right-drag = pan · wheel = zoom</span>
         <span className="spacer" />
-        {job && (
-          <span className="view-buttons">
-            {['top', 'left', 'right', 'iso'].map((v) => (
-              <button key={v} onClick={() => sceneRef.current?.setView(v)} title={`view: ${v}`}>
-                {v === 'iso' ? 'ISO' : v[0].toUpperCase() + v.slice(1)}
-              </button>
-            ))}
-          </span>
-        )}
+        <span className="view-buttons">
+          {['top', 'left', 'right', 'iso'].map((v) => (
+            <button key={v} onClick={() => sceneRef.current?.setView(v)} title={`view: ${v}`}>
+              {v === 'iso' ? 'ISO' : v[0].toUpperCase() + v.slice(1)}
+            </button>
+          ))}
+        </span>
         {job && (
           <>
             <button onClick={() => sceneRef.current?.showAll()}>Show All</button>
@@ -128,6 +126,7 @@ export default function VisualizerPanel({
           <div>
             {selectedPath.segments.length} segments · depth {selectedPath.depth?.toFixed(3)} mm ·
             feed {selectedPath.feed} mm/min · length {pathLength(selectedPath).toFixed(1)} mm
+            {selectedPath.cutWidth != null && ` · cut width ${selectedPath.cutWidth} mm`}
             {selection && !selection.region && (
               <span className="hint">
                 {' '}· segment {selection.segmentId} (source line {selection.sourceLine})

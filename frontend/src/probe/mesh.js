@@ -82,3 +82,32 @@ export function applyMeasurements(vertices, positions) {
   }
   return matched;
 }
+
+/**
+ * Coverage pre-check: whether a job's XY bounds lie inside the convex hull of
+ * the probe vertices. Catches a too-small mesh BEFORE a physical probe pass —
+ * compensation would otherwise reject out-of-hull cutting points only after
+ * the whole surface was measured.
+ * @returns {{covered:boolean, jobsOut:[{x:number,y:number}...]}} the 4 job
+ *   corners that fall outside the hull (empty when covered)
+ */
+export function hullCoversBounds(vertices, bounds) {
+  const missing = [];
+  if (!vertices.length || !bounds) return { covered: false, missing };
+  const corners = [
+    { x: bounds.minX, y: bounds.minY },
+    { x: bounds.maxX, y: bounds.minY },
+    { x: bounds.minX, y: bounds.maxY },
+    { x: bounds.maxX, y: bounds.maxY }
+  ];
+  // A point is inside the hull when it is inside some triangle of the full
+  // (not only fully-measured) triangulation — matches the surface's
+  // interpolation domain.
+  const triangles = triangulate(vertices);
+  for (const c of corners) {
+    const inside = triangles.some(([a, b, d]) =>
+      inTriangle(vertices[a], vertices[b], vertices[d], c.x, c.y));
+    if (!inside) missing.push(c);
+  }
+  return { covered: missing.length === 0, missing };
+}

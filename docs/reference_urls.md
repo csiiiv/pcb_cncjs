@@ -2,7 +2,13 @@
 
 This file collects the main upstream repositories, documentation, and source files relevant to the PCB CNC project.
 
-Use this together with `PROJECT.md`.
+Use this together with `docs/project.md` (the project brief).
+
+> Note: the URLs below point at the upstream repositories. The actual fork
+> lives in `cncjs/` as a nested git checkout; when a section describes how
+> CNCjs "currently" works, check the local `cncjs/` sources first — the fork
+> adds CAM routes, autolevel points/test modes, per-ack `sender:status`,
+> serial open-failure cleanup, and error shaping.
 
 ---
 
@@ -701,8 +707,9 @@ https://docs.cursor.com/
 Cursor should be instructed to read:
 
 ```text
-PROJECT.md
-REFERENCES.md
+docs/project.md
+docs/auto_level.md
+docs/cam.md
 ```
 
 before beginning major development phases.
@@ -710,7 +717,8 @@ before beginning major development phases.
 Suggested instruction:
 
 ```text
-Read PROJECT.md and REFERENCES.md completely before making architectural changes.
+Read docs/project.md (especially §0 implementation status) and the subsystem
+doc for the phase you are working on before making architectural changes.
 
 Work only on the requested project phase.
 
@@ -797,25 +805,19 @@ https://github.com/pcb2gcode/pcb2gcode/blob/master/man/pcb2gcode.1
 For a Cursor agent starting from scratch:
 
 ```text
-1. PROJECT.md
+1. docs/project.md — §0 status table first, then the phase being worked on
 
-2. REFERENCES.md
+2. docs/reference_urls.md (this file)
 
-3. CNCjs package.json
+3. docs/cam.md + docs/auto_level.md (subsystem briefs)
 
-4. CNCjs GrblController.js
+4. cncjs/src/server/controllers/Grbl/GrblController.js (local fork)
 
-5. CNCjs Controller.js
+5. cncjs/src/server/cam/ (local CAM service)
 
-6. CNCjs Axes/DisplayPanel.jsx
+6. frontend/src/cnc/ + frontend/src/probe/ (new frontend subsystems)
 
-7. CNCjs GCodeVisualizer.js
-
-8. CNCjs autolevel.js
-
-9. CNCjs ProbeVisualization.js
-
-10. pcb2gcode manual
+7. pcb2gcode manual
 ```
 
 Do not attempt to understand the entire CNCjs repository before beginning.

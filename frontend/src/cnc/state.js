@@ -1,5 +1,6 @@
 // Derived machine-state helpers over the CNCjs event stream (Phase 1: read-only).
 import { ConnectionState } from './connection.js';
+import { connectionErrorMessage } from './errors.js';
 
 export const GRBL_ACTIVE_STATES = [
   'Idle', 'Run', 'Hold', 'Jog', 'Alarm', 'Door', 'Check', 'Home', 'Sleep'
@@ -10,6 +11,8 @@ const initialSnapshot = () => ({
   server: ConnectionState.DISCONNECTED,
   serverError: null,
   loadedControllers: [],
+  // Firmware version (from controller:settings, GrblLineParserResultStartup)
+  firmware: null,
   // Serial / GRBL connection
   ports: [],
   connectedPort: null,
@@ -25,6 +28,9 @@ const initialSnapshot = () => ({
   modal: null, // { motion, wcs, plane, distance, units, ... }
   feedrate: null,
   spindle: null,
+  spindleRpm: null, // realtime FS report; spindle above is programmed S
+  accessoryState: null,
+  ov: null, // [feed, rapid, spindle] override percentages from Ov: report
   // Workflow
   workflowState: null,
   // Sender (job execution)
@@ -122,31 +128,44 @@ export function createMachineStateStore() {
           // Phase 1 choice: clear the live link fields.
           patch.connectedPort = null;
           patch.serialError = null;
+          patch.spindleRpm = null;
+          patch.accessoryState = null;
+          patch.modal = null;
+          patch.spindle = null;
         }
         if (state !== ConnectionState.CONNECTING) patch.serverError = null;
         commit(patch);
       });
 
-      connection.on('error', (err) => commit({ serverError: err?.message || String(err) }));
+      connection.on('error', (err) => commit({ serverError: connectionErrorMessage(err) }));
 
       connection.on('startup', ({ loadedControllers }) =>
         commit({ loadedControllers: loadedControllers || [] })
       );
 
+      connection.on('controller:settings', (controller, settings) => {
+        if (controller !== 'Grbl') return;
+        const { firmware, version } = settings || {};
+        commit({ firmware: firmware && version ? `${firmware} ${version}` : (version || null) });
+      });
+
       connection.on('serialport:list', (ports) => commit({ ports: ports || [] }));
 
       connection.on('serialport:open', ({ port, baudrate, controllerType }) =>
-        commit({ connectedPort: port, controllerType, serialError: null })
+        commit({ connectedPort: port, controllerType, serialError: null,
+          activeState: null, workflowState: null, modal: null, spindle: null,
+          spindleRpm: null, accessoryState: null, ov: null, firmware: null })
       );
 
       connection.on('serialport:close', ({ port }) => {
         if (snapshot.connectedPort === port) {
-          commit({ connectedPort: null, controllerType: null, activeState: null, workflowState: null });
+          commit({ connectedPort: null, controllerType: null, activeState: null, workflowState: null,
+            modal: null, spindle: null, spindleRpm: null, accessoryState: null, ov: null, firmware: null });
         }
       });
 
       connection.on('serialport:error', (err) =>
-        commit({ serialError: err?.message || String(err) })
+        commit({ serialError: connectionErrorMessage(err, 'Serial connection failed. Close other applications using the port, then retry.') })
       );
 
       connection.on('controller:state', (controller, state) => {
@@ -162,7 +181,10 @@ export function createMachineStateStore() {
           pinState: s.pinState || null,
           modal: p.modal || null,
           feedrate: p.feedrate ?? null,
-          spindle: p.spindle ?? null
+          spindle: p.spindle ?? null,
+          spindleRpm: s.spindle ?? null,
+          accessoryState: s.accessoryState ?? null,
+          ov: s.ov ?? null
         });
       });
 
@@ -206,10 +228,10 @@ export function createMachineStateStore() {
 
 // --- formatting helpers ---
 
-export function fmtAxis(value) {
+export function fmtAxis(value, decimals = 3) {
   if (value === null || value === undefined) return '—';
   const n = Number(value);
-  return Number.isFinite(n) ? n.toFixed(3) : String(value);
+  return Number.isFinite(n) ? n.toFixed(decimals) : String(value);
 }
 
 export function stateColor(activeState) {

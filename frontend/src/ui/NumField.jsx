@@ -1,9 +1,11 @@
 // Controlled numeric field that tolerates partial input ("", "-", "-1.").
 // type="number" reports badInput as "" (the minus vanishes), which made
 // negative bounds impossible to type; plain text + our own parse fixes it.
+import { ParameterLabel } from './InfoIcon.jsx';
+import { labelHelp } from './parameterHelp.js';
 import { useEffect, useRef, useState } from 'react';
 
-export default function NumField({ label, value, onChange, title }) {
+export default function NumField({ label, value, onChange, title, help }) {
   const [text, setText] = useState(String(value));
   const focused = useRef(false);
 
@@ -19,8 +21,8 @@ export default function NumField({ label, value, onChange, title }) {
   };
 
   return (
-    <label title={title}>
-      {label}
+    <label>
+      <ParameterLabel label={label} help={help || title || labelHelp(label)} />
       <input
         type="text"
         inputMode="decimal"

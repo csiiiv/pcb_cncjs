@@ -41,9 +41,28 @@ export function createProbeStore() {
       commit({ ...next, bounds: bounds || snapshot.bounds });
     },
 
-    /** Add vertices (refinement). Measured vertices are untouched. */
+    /**
+     * Replace the mesh and drop the probe-run aggregates (results, progress,
+     * min/max). Surviving vertices keep their own z; min/max is recomputed
+     * from those. Used when the lattice is cleared but manual points stay.
+     */
+    replaceMesh(vertices, bounds) {
+      const next = retriangulate(vertices);
+      const zs = next.vertices.map((v) => Number(v.z)).filter(Number.isFinite);
+      commit({
+        ...next,
+        bounds: bounds || snapshot.bounds,
+        results: [],
+        progress: null,
+        running: false,
+        minZ: zs.length ? Math.min(...zs) : null,
+        maxZ: zs.length ? Math.max(...zs) : null,
+      });
+    },
+
+    /** Add vertices (refinement / manual placement). Returns the added list. */
     addVertices(points) {
-      if (!points?.length) return;
+      if (!points?.length) return [];
       const existing = new Set(snapshot.vertices.map((v) => `${Math.round(v.x * 100)}:${Math.round(v.y * 100)}`));
       const fresh = points.filter((p) => {
         const k = `${Math.round(p.x * 100)}:${Math.round(p.y * 100)}`;
@@ -51,13 +70,26 @@ export function createProbeStore() {
         existing.add(k);
         return true;
       });
-      if (!fresh.length) return;
+      if (!fresh.length) return [];
       commit(retriangulate([...snapshot.vertices, ...fresh]));
+      return fresh;
     },
 
     /** Remove a single vertex and re-triangulate. */
     removeVertex(id) {
       commit(retriangulate(snapshot.vertices.filter((v) => v.id !== id)));
+    },
+
+    /** Drop every vertex, triangle, and measurement so a map can be rebuilt. */
+    clearMesh() {
+      commit({
+        ...retriangulate([]),
+        results: [],
+        progress: null,
+        running: false,
+        minZ: null,
+        maxZ: null,
+      });
     },
 
     clearResults() {
@@ -71,15 +103,24 @@ export function createProbeStore() {
       });
     },
 
-    begin(kind) {
+    begin(kind, meta = null) {
       const patch = { running: true, session: kind };
       if (kind === 'map') {
         patch.results = [];
         patch.progress = { current: 0, total: 0 };
         patch.minZ = null;
         patch.maxZ = null;
+      } else if (kind === 'test') {
+        // repeatability test: raw per-attempt log, never touches the mesh
+        patch.testLog = [];
+        patch.testMode = meta?.mode ?? null; // 'burst' | 'cycled'
+        patch.progress = { current: 0, total: 0 };
       }
       commit(patch);
+    },
+
+    clearTest() {
+      commit({ testLog: [], testMode: null, session: null, running: false, progress: null });
     },
 
     halt() {
@@ -93,6 +134,16 @@ export function createProbeStore() {
           commit({
             lastTouch: msg?.probedPos || positions[0] || snapshot.lastTouch,
             running: (msg?.current ?? 0) < (msg?.total ?? 1),
+          });
+          return;
+        }
+        if (snapshot.session === 'test') {
+          // raw attempt log for repeatability stats — cumulative positions
+          // array is order-stable, so a shallow copy per update is enough
+          commit({
+            testLog: positions.map((p) => ({ ...p })),
+            progress: { current: msg?.current ?? positions.length, total: msg?.total ?? positions.length },
+            running: (msg?.current ?? 0) < (msg?.total ?? 0),
           });
           return;
         }
@@ -131,6 +182,14 @@ export function createProbeStore() {
         if (workflowState === 'idle' && snapshot.running) {
           commit({ running: false });
         }
+      });
+      // A GRBL alarm mid-probe (crash, probe fault, reset) never produces a
+      // completion event — the feeder simply stalls. Watching the reported
+      // active state ends the session so the UI can offer resume.
+      connection.on('controller:state', (controller, state) => {
+        if (controller !== 'Grbl' || !snapshot.running) return;
+        const st = state?.status?.activeState;
+        if (st === 'Alarm' || st === 'Door') commit({ running: false });
       });
     },
   };

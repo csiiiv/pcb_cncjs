@@ -3,6 +3,11 @@
 //   command(port, 'gcode:load', name, gcode, {}, ack)
 //   command(port, 'gcode:start' | 'gcode:pause' | 'gcode:resume' | 'gcode:stop')
 // Progress arrives via 'sender:status' events (sent/received/total/elapsed/remaining).
+export function loadedJobMatches(loaded, job, port) {
+  return Boolean(loaded && job && port && loaded.text === job.text
+    && loaded.name === job.name && loaded.port === port);
+}
+
 export class JobRunner {
   constructor(connection) {
     this.connection = connection;

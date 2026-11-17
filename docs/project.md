@@ -1,5 +1,77 @@
 # PCB CNCjs Fork – Project Brief
 
+# 0. Documentation Map & Implementation Status
+
+> Reviewed 2026-11-17. This section records what actually exists in the
+> repository; the numbered sections below remain the original specification.
+
+## Documentation map
+
+```text
+README.md               repository overview and quick start
+docs/development.md     setup, validation and separate-backend requirements
+docs/project.md         this brief + per-phase status
+docs/auto_level.md      autolevel / probe-mesh design brief + status
+docs/cam.md             pcb2gcode CAM integration (Phase 5)
+docs/tool_test.md       V-bit tool tests & saved tool profiles
+docs/settings.md        component startup defaults
+docs/workflow.md        twelve-stage workflow, operation execution and recovery limits
+docs/ui-modes.md        Debug / Guided Milling / Tool Testing views and state lifetime
+docs/troubleshooting.md serial lock / reopen failures (ModemManager + server close races)
+docs/reference_urls.md  upstream references
+```
+
+Feature docs are authoritative for their subsystems; this brief tracks the
+overall plan and phase status.
+
+The published outer repository contains the frontend, docs, samples and
+launcher. `cncjs/` is a separate, ignored local Git checkout; its modifications
+are not included when this repository is cloned or pushed. No published
+backend fork URL or submodule is configured yet. Backend-dependent entries
+below describe the local workstation implementation. See
+[development.md](development.md) for that boundary and setup requirements.
+
+## Implementation status
+
+```text
+Phase 0  Fork & environment          done    cncjs/ nested repo (tracks upstream) + frontend/
+Phase 1  Read-only state mirror      done    DRO (WPos primary), Status, Connection widgets
+Phase 2  Basic machine controls      done    unlock/reset, jog (+diagonals), zero X/Y/Z/XY/XYZ,
+                                             spindle widget
+Phase 3  Parser + visualizer         done    parseGcode + Three.js scene, rulers, view presets
+Phase 4  Interactive toolpaths       done    path/segment/region selection, hide/isolate, metadata
+Phase 5  pcb2gcode CAM               done    see cam.md (ZIP import, setup wizard, per-bit drill
+                                             split, outline tabs, tool profiles)
+Phase 6  PCB project persistence     open    browser defaults/profiles + workflow diary, heightmap
+                                             and CAM exports; CAM sources/results and viewer jobs
+                                             remain in memory; no unified project save/load
+Phase 7  Variable-density probe      done*   superseded by the auto_level.md probe-mesh design
+                                             (triangular lattice + refinement + manual points);
+                                             probe/plan.js grid planner is unused legacy
+Phase 8  Explicit probe execution    done    autolevel:start points mode in GrblController
+                                             (≤ 2000 pts, PRB→work coords server-side,
+                                             update/complete events, cancel, test mode)
+Phase 9  Surface model/compensation  done*   linear Delaunay surface + tinted visualization +
+                                             subdividing Z compensation with coverage rejection;
+                                             cubic/confidence layers still open
+Phase 10 Integrated machining flow   done*   twelve-stage Guided wizard + Debug Job Runner,
+                                             armed start, pause/resume/stop, per-ack progress,
+                                             tool/Z records and operation outcomes; complete
+                                             restart recovery and archives still open
+Phase 11 Selective re-machining      open    selection exists; repair micro-job generator
+                                             not built
+Phase 12 Advanced PCB workflow       open    future
+```
+
+`*` = implemented with the noted qualifications; details in the linked docs.
+
+Frontend layout and backend fork changes are listed in §39.
+
+Validation on 2026-11-17: all 17 frontend test files pass and `npm run build`
+succeeds with a large-bundle warning (Node.js 20.20.0, npm 10.8.2). This
+review did not run backend tests or a physical machining cycle. Commands are
+in [development.md](development.md).
+
 ## 1. Project Goal
 
 Build a modern PCB-focused CNC workstation by **forking CNCjs** and using its proven machine-control backend while replacing most of its existing frontend with a purpose-built PCB workflow.
@@ -215,6 +287,14 @@ frontend/
 
 Backend changes should be small, explicit, and isolated.
 
+Realized layout (differs from the sketch above):
+
+```text
+PCB-CNCJS/            outer repo: docs/, samples/, frontend/
+cncjs/                nested git repo tracking upstream cncjs + fork changes
+frontend/             new PCB UI (Vite + React 19)
+```
+
 ---
 
 # 6. Development Strategy
@@ -225,11 +305,19 @@ Example:
 
 ```text
 http://localhost:8000/
-    Legacy CNCjs UI
+    Legacy CNCjs UI (cncjs/ backend)
 
-http://localhost:8000/pcb/
-    New PCB UI
+http://localhost:5173/
+    New PCB UI (Vite dev server)
 ```
+
+The Vite dev server proxies `/api` and `/socket.io` to the CNCjs backend on
+port 8000 (`frontend/vite.config.js`), so the new UI uses same-origin API
+and socket URLs during development. On a workstation with the modified
+backend and its production build, run `./dev.sh` from the outer repository
+root; use `./dev.sh --rebuild` after backend server edits. See
+[development.md](development.md) for separate-terminal commands,
+authentication constraints and fresh-clone limitations.
 
 The old interface remains useful during development as:
 
@@ -947,6 +1035,10 @@ frontend/src/cnc/
 └── state.js
 ```
 
+Actual files: `connection.js`, `runtime.js`, `state.js`, `commands.js`,
+`jobRunner.js`, `probe.js`, `spindle.js`, `errors.js` (events are bound in
+`state.js` / `probe/store.js` rather than a separate events module).
+
 Responsibilities:
 
 - CNCjs connection
@@ -1044,6 +1136,13 @@ controller.command('autolevel:start', {
 Existing rectangular grid behavior should remain available.
 
 This backend change should remain isolated.
+
+Status: implemented. `autolevel:start` accepts `mode: 'points'` with explicit
+XY points (limit 2000), converts PRB results to work coordinates server-side,
+and streams cumulative positions through `autolevel:update` /
+`autolevel:complete`. A `test` mode probes the current XY once (touch probe /
+repeatability test). Rectangular grid mode remains available upstream. See
+[auto_level.md](auto_level.md).
 
 ---
 
@@ -1434,6 +1533,79 @@ Possible later features:
 
 # 39. Suggested Frontend Modules
 
+The originally suggested layout has evolved. The **actual** structure is:
+
+```text
+frontend/src/
+│
+├── cnc/                    # socket layer, state store, commands (§23)
+│   ├── connection.js       #   CNCjs Socket.IO + auth token handling
+│   ├── runtime.js          #   shared singletons (store, commands, runners)
+│   ├── state.js            #   derived machine-state store over the event stream
+│   ├── commands.js         #   unlock/reset, $J= jogs, G10 L20 zeroing, spindle
+│   ├── jobRunner.js        #   gcode:load/start/pause/resume/stop
+│   ├── probe.js            #   autolevel:start points mode + single-axis touch
+│   ├── spindle.js          #   spindle eligibility / reported mode helpers
+│   └── errors.js           #   connection error messages
+│
+├── cam/                    # PCB CAM widget state + REST client (Phase 5)
+│   ├── client.js           #   authenticated /api/cam/status|generate
+│   ├── store.js            #   per-session CAM store
+│   ├── setup.js            #   setup-wizard steps + validation
+│   ├── archive.js          #   in-browser Gerber ZIP import (fflate)
+│   ├── defaults.js         #   default CAM settings
+│   ├── preview.js          #   load operation into shared viewer
+│   └── CamResults.jsx      #   per-operation results list
+│
+├── probe/                  # probe mesh / surface subsystem (auto_level.md)
+│   ├── store.js            #   authoritative vertex mesh store
+│   ├── wiring.js           #   probe-start gate (wiring-check modal store)
+│   ├── lattice.js          #   initial triangular lattice
+│   ├── mesh.js             #   Delaunay triangulation, measurement attach
+│   ├── refine.js           #   refinement candidate engine
+│   ├── tour.js             #   travel-optimized probe ordering
+│   ├── surface.js          #   linear Delaunay surface (getZ)
+│   ├── compensate.js       #   subdividing Z compensation
+│   ├── heightmapFile.js    #   heightmap save/load/compare
+│   ├── repeatability.js    #   per-spot / pooled probe statistics
+│   ├── colormap.js         #   heightmap palettes
+│   └── plan.js             #   LEGACY grid planner, unused (kept as reference)
+│
+├── visualizer/             # Three.js toolpath viewer
+│   ├── ToolpathScene.js    #   scene, raycasting, layers, probe overlays
+│   ├── ToolpathCanvas.jsx  #   canvas + ResizeObserver
+│   ├── VisualizerWidget.jsx#   dock widget wrapper
+│   ├── GcodePreviewWidget.jsx  # step-through G-code list widget
+│   ├── LayerChecklist.jsx  #   layer visibility UI
+│   ├── layers.js           #   layer definitions
+│   ├── vizStore.js         #   shared viz state (job, selection, prefs)
+│   ├── jobCompensation.js  #   apply/revert compensation in the viewer
+│   ├── VisualizerPanel.jsx #   LEGACY standalone panel (unused; widgets supersede)
+│   └── GcodePreviewPanel.jsx  # LEGACY standalone panel (unused)
+│
+├── widgets/                # dock components (DockShell.jsx hosts them)
+│   ├── ConnectionWidget, DroWidget, StatusWidget, MachineControlsWidget,
+│   ├── SpindleWidget, CamWidget + CamSetupModal, ToolTestWidget,
+│   ├── VisualizerWidget, GcodePreviewWidget, ConsoleWidget, JobRunnerWidget,
+│   ├── ProbeWidget, AutolevelWidget + HeightmapCompareModal +
+│   ├── RepeatabilityTestModal, ConnectPromptModal
+│
+├── jobs/parseGcode.js      # structured path/segment job model (§15–16)
+│
+├── tooltest/               # V-bit test G-code generator + config
+├── tools/                  # saved tool profiles (browser storage)
+├── settings/               # startup-defaults schema + store + modal
+├── machine/MachineControls.jsx  # legacy panel (superseded by the widget)
+├── ui/                     # NumField, InfoIcon, ModalKit, parameterHelp
+├── App.jsx                 # header + settings + connect prompt
+├── DockShell.jsx           # draggable/resizable dock layout
+└── main.jsx
+```
+
+`remachining/` and `project/` (Phase 6 / Phase 11) do not exist yet.
+
+The original sketch, kept for reference:
+
 ```text
 frontend/src/
 │
@@ -1506,6 +1678,24 @@ src/server/
     └── explicit autolevel point support
 ```
 
+Both exist now, in the `cncjs/` nested repo:
+
+```text
+cncjs/src/server/
+├── api/api.cam.js                      # GET /api/cam/status, POST /api/cam/generate
+├── cam/{config,pcb2gcode,operations}.js + __tests__/   # CAM service (Phase 5)
+├── controllers/Grbl/GrblController.js  # autolevel points/test modes, per-ack
+│                                       # sender:status, cumulative probe events
+├── lib/serial-error.js + SerialConnection.js  # failed-open cleanup + error shaping
+└── services/cncengine/CNCEngine.js     # fork wiring
+```
+
+`cncjs/` remains a separate Git repository for upstream integration. Its
+current checkout contains a local sender-progress commit and additional
+uncommitted backend changes. They are excluded from this outer repository;
+publishing it does not back up the backend. Rebuild server modules after
+backend changes (see [development.md](development.md)).
+
 ---
 
 # 40. Safety Requirements
@@ -1553,6 +1743,9 @@ Each phase should leave the system in a usable/testable state.
 
 ## Phase 0 — Fork and Development Environment
 
+Status: **done** (commit `cda2042`). The fork lives in `cncjs/` as a nested
+git repository tracking upstream; the new UI lives in `frontend/`.
+
 Goals:
 
 - Fork CNCjs.
@@ -1576,6 +1769,10 @@ new empty frontend works
 ---
 
 ## Phase 1 — CNC Connection and Machine State
+
+Status: **done** (commits `cda2042`→`7550331`). Connection/DRO/Status widgets
+mirror the machine read-only; WPos is visually primary; `frontend/src/cnc/`
+isolates all socket communication (§23).
 
 Implement read-only integration.
 
@@ -1604,6 +1801,10 @@ New frontend accurately mirrors machine state
 
 ## Phase 2 — Basic Machine Controls
 
+Status: **done** (commit `7550331`, diagonal jogs added later). Unlock/reset,
+jog cluster with diagonals, spindle controls, and zero X/Y/Z/XY/XYZ are live
+through `MachineCommands` (G10 L20 zeroing, GRBL 1.1 `$J=` jogs).
+
 Implement:
 
 - unlock
@@ -1625,6 +1826,11 @@ New UI can safely position and zero the machine
 ---
 
 ## Phase 3 — G-code Parser and Modern Visualizer
+
+Status: **done** (commits `732bfd5`→`ca6323f`). `frontend/src/jobs/parseGcode.js`
+builds the structured path/segment model; `frontend/src/visualizer/ToolpathScene.js`
+renders with Three.js (BufferGeometry), including adaptive rulers, view presets,
+live tool marker, and run-progress tracking.
 
 Implement:
 
@@ -1656,6 +1862,9 @@ our interactive visualizer
 
 ## Phase 4 — Interactive Toolpaths
 
+Status: **done** (commit `a06f9b1`). Path/segment/region selection,
+highlight/isolate/hide, metadata display, and a layer checklist are live.
+
 Implement:
 
 - click path
@@ -1676,6 +1885,11 @@ Toolpaths become selectable/editable objects
 ---
 
 ## Phase 5 — pcb2gcode CAM Integration
+
+Status: **done**. Front isolation, per-bit
+drilling, and tabbed-outline generation are available through the PCB CAM widget
+and the authenticated CNCjs CAM API. Full PCB project persistence remains Phase 6.
+Implementation and setup: [CAM integration](cam.md).
 
 Integrate pcb2gcode.
 
@@ -1710,6 +1924,12 @@ our visualizer
 
 ## Phase 6 — PCB Project Workflow
 
+Status: **open** (the next major phase). What persists today: startup
+defaults ([settings.md](settings.md)), browser tool profiles
+([tool_test.md](tool_test.md)), heightmap files, and the per-page-session CAM
+store. A unified project file (sources + CAM config + operations + probe
+surface + status) is not built yet.
+
 Add project-level state.
 
 Implement:
@@ -1733,7 +1953,15 @@ One PCB project contains all CAM and machining state
 
 ## Phase 7 — Variable-Density Probe Planner
 
-Implement:
+Status: **done, superseded design**. The original rectangular grid + dense
+rectangular regions planner was replaced by the probe-mesh approach specified
+in [auto_level.md](auto_level.md): an initial triangular lattice, Delaunay
+triangulation, interactive refinement (centroid / longest-edge / circumcenter
+candidates), free-point placement, manual typed entry, and click deletion.
+`frontend/src/probe/plan.js` (the old grid planner) is unused legacy kept only
+as a reference.
+
+The implemented scope covers:
 
 - PCB bounds
 - base grid
@@ -1756,6 +1984,17 @@ Interactive custom probe map
 
 ## Phase 8 — Explicit Probe Execution
 
+Status: **done**. `GrblController.autolevel:start` accepts
+`mode: 'points'` with explicit XY points (limit 2000), generates the
+clearance → rapid → probe → retract G-code, converts PRB results to work
+coordinates server-side, snaps map probes back to planned XY, and streams
+cumulative results via `autolevel:update` / `autolevel:complete`.
+Cancellation soft-resets GRBL. A `test` mode (touch / repeatability) probes
+the current XY repeatedly for probe-quality statistics. Travel-optimized
+probe ordering (nearest-neighbor + 2-opt vs serpentine vs exact for small
+sets) runs client-side in `frontend/src/probe/tour.js`. See
+[auto_level.md](auto_level.md).
+
 Modify CNCjs backend minimally to accept explicit XY probe points.
 
 Implement:
@@ -1776,6 +2015,17 @@ Our custom probe map can be physically measured
 ---
 
 ## Phase 9 — Surface Modeling and Compensation
+
+Status: **partially done — baseline complete**. The conservative linear
+Delaunay surface (barycentric interpolation over fully measured triangles,
+null outside coverage) is implemented in `frontend/src/probe/surface.js` with
+tinted surface-mesh visualization and colormaps. G-code Z compensation
+(`frontend/src/probe/compensate.js`) subdivides cutting moves (~2 mm), follows
+the surface on rapids' counterparts, and rejects any cutting point outside the
+probed hull instead of extrapolating. Heightmaps can be saved/loaded and
+compared for reproducibility. Still open: smooth/cubic surface model,
+linear-vs-cubic disagreement, confidence/uncertainty layer, error-driven and
+toolpath-aware refinement (see auto_level.md "Desired Advanced Version").
 
 Implement:
 
@@ -1800,6 +2050,14 @@ compensated machining geometry
 ---
 
 ## Phase 10 — Integrated PCB Machining Workflow
+
+Status: **mostly done**. CAM operations load straight into the shared
+visualizer and Job Runner; Start is double-click-armed, Pause/Resume/Stop/
+Force-stop exist, progress tracks real `(ln=N)` ack echoes, the G-code panel
+follows execution, and switching viewer operations invalidates the sender's
+loaded-job indicator. Tool-change workflow is manual (drill jobs are split
+per bit; the operator mounts the stated tool and re-zeros Z). Operation
+execution status/lifecycle tracking waits on Phase 6 project persistence.
 
 Connect:
 
@@ -1834,6 +2092,10 @@ Complete front-side PCB machining workflow
 ---
 
 ## Phase 11 — Selective Re-machining
+
+Status: **open**. Path/segment/region selection exists (Phase 4), but the
+repair micro-job generator (§32–37: modal-state establishment, lead-in/out,
+depth adjustment, surface-compensated repair jobs) is not built yet.
 
 Implement:
 
@@ -1994,11 +2256,17 @@ Each phase should:
 
 # 43. Initial Cursor Task
 
+> Historical: Phase 0 and Phase 1 were completed first (commit `cda2042`).
+> Subsequent phases through Phase 5 and Phases 8–10 followed. For current
+> next-step planning see the status table in §0; the open work is Phase 6
+> (project persistence), Phase 11 (selective re-machining), and the advanced
+> autolevel items in auto_level.md.
+
 Start with **Phase 0 and Phase 1 only**.
 
 Tasks:
 
-1. Read this entire `PROJECT.md`.
+1. Read this entire `docs/project.md`.
 
 2. Inspect the CNCjs repository and identify:
    - server startup

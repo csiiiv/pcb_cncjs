@@ -1,6 +1,10 @@
+import { ParameterLabel } from '../ui/InfoIcon.jsx';
+import { parameterHelp } from '../ui/parameterHelp.js';
+import { useDefaultState } from '../settings/store.js';
 // Single-axis touch probe, laid out like the CNCjs Probe widget.
 import { useState } from 'react';
 import { useStoreSelector, probeCommands } from '../cnc/runtime.js';
+import { requestProbeStart } from '../probe/wiring.js';
 import NumField from '../ui/NumField.jsx';
 
 const num = (v, fallback = 0) => {
@@ -19,21 +23,27 @@ const COMMAND_HINT = {
 export default function ProbeWidget() {
   const port = useStoreSelector((s) => s.connectedPort);
   const wcs = useStoreSelector((s) => s.modal?.wcs);
-  const [axis, setAxis] = useState('Z');
-  const [command, setCommand] = useState('G38.2');
-  const [depth, setDepth] = useState(10);
-  const [feedrate, setFeedrate] = useState(50);
-  const [plate, setPlate] = useState(0);
-  const [retract, setRetract] = useState(2);
+  const [axis, setAxis] = useDefaultState('probe', 'axis');
+  const [command, setCommand] = useDefaultState('probe', 'command');
+  const [depth, setDepth] = useDefaultState('probe', 'depth');
+  const [feedrate, setFeedrate] = useDefaultState('probe', 'feedrate');
+  const [plate, setPlate] = useDefaultState('probe', 'plate');
+  const [retract, setRetract] = useDefaultState('probe', 'retract');
   const [error, setError] = useState(null);
 
   const run = () => {
     setError(null);
-    try {
-      probeCommands.probeAxis({ axis, command, depth, feedrate, plate, retract, wcs });
-    } catch (err) {
-      setError(err.message);
-    }
+    requestProbeStart({
+      kind: 'touch',
+      detail: `${axis} · ${command}`,
+      run: () => {
+        try {
+          probeCommands.probeAxis({ axis, command, depth, feedrate, plate, retract, wcs });
+        } catch (err) {
+          setError(err.message);
+        }
+      }
+    });
   };
 
   return (
@@ -43,14 +53,14 @@ export default function ProbeWidget() {
       </div>
       {error && <div className="error">{error}</div>}
 
-      <div className="probe-label">Axis</div>
+      <div className="probe-label"><ParameterLabel label="Axis" help={parameterHelp('probe', 'axis')} /></div>
       <div className="seg">
         {['Z', 'X', 'Y'].map((a) => (
           <button key={a} className={axis === a ? 'on' : ''} onClick={() => setAxis(a)}>{a}</button>
         ))}
       </div>
 
-      <div className="probe-label">Command</div>
+      <div className="probe-label"><ParameterLabel label="Command" help={parameterHelp('probe', 'command')} /></div>
       <div className="seg">
         {COMMANDS.map((c) => (
           <button key={c} className={command === c ? 'on' : ''} onClick={() => setCommand(c)}>{c}</button>

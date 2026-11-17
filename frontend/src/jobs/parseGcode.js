@@ -11,6 +11,16 @@
 
 const MOTION = { RAPID: 'G0', LINE: 'G1', CW_ARC: 'G2', CCW_ARC: 'G3' };
 
+// Tool-width comments give the visualizer the effective cutting diameter in
+// millimetres. pcb2gcode emits "(MSG, Change tool bit to mill diameter
+// 0.20000mm)" / "cutter diameter 1.00000mm" / "drill size 0.8mm"; the tool-test
+// generator emits "(Reference 2: Z-0.05 / estimated width 0.157 mm)" per
+// groove. A comment applies to every path that starts after it: widths are
+// constant per path (a V-bit's width differs between paths cut at different
+// depths), which is exactly how pcb2gcode and the coupon generator emit them.
+const WIDTH_COMMENT = /(mill diameter|cutter diameter|drill size|estimated width)\s+([0-9]*\.?[0-9]+)\s*mm/i;
+const MAX_SANE_WIDTH = 25; // mm — guards stray matches from unrelated comments
+
 export function stripComments(line) {
   // remove () comments and ; to-end-of-line comments
   return line.replace(/\([^)]*\)/g, '').replace(/;.*$/, '').trim();
@@ -25,7 +35,7 @@ function parseWords(code) {
     const letter = m[1].toUpperCase();
     const value = m[2];
     if (letter === 'G' || letter === 'M') {
-      (words[letter] ||= []).push(value);
+      (words[letter] ||= []).push(String(Number(value))); // G00/G01 are G0/G1
     } else {
       words[letter] = Number(value);
     }
@@ -80,6 +90,7 @@ export function parseGcode(sourceText) {
   const rapidMoves = [];
   let pathId = 0;
   let segmentId = 0;
+  let pendingWidth = null; // tool width from the last width comment
 
   const bounds = {
     min: { x: Infinity, y: Infinity, z: Infinity },
@@ -97,6 +108,12 @@ export function parseGcode(sourceText) {
 
   for (const rawLine of lines) {
     lineNo++;
+
+    const widthMatch = rawLine.match(WIDTH_COMMENT);
+    if (widthMatch && Number(widthMatch[2]) <= MAX_SANE_WIDTH) {
+      pendingWidth = Number(widthMatch[2]);
+    }
+
     const code = stripComments(rawLine);
     if (!code) continue;
     if (/^%/.test(code)) continue; // program markers
@@ -156,7 +173,7 @@ export function parseGcode(sourceText) {
 
       if (!p || lastWasRapid) {
         pathId++;
-        p = { id: pathId, segments: [], sourceLine: lineNo, feed, depth: target.z };
+        p = { id: pathId, segments: [], sourceLine: lineNo, feed, depth: target.z, cutWidth: pendingWidth };
         paths.push(p);
       }
 

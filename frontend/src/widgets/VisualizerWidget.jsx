@@ -1,9 +1,13 @@
+import InfoIcon from '../ui/InfoIcon.jsx';
+import { parameterHelp } from '../ui/parameterHelp.js';
 // Visualizer: 3D toolpath canvas + view/visibility toolbar (job via viz store).
 import { useEffect, useRef } from 'react';
 import { parseGcode, pathLength } from '../jobs/parseGcode.js';
 import ToolpathCanvas from '../visualizer/ToolpathCanvas.jsx';
+import LayerChecklist from '../visualizer/LayerChecklist.jsx';
+import { revertJobCompensation } from '../visualizer/jobCompensation.js';
 import { viz, setViz, useViz } from '../visualizer/vizStore.js';
-import { useStoreSelector, probeStore, useProbe } from '../cnc/runtime.js';
+import { useStoreSelector, probeStore, useProbe, store } from '../cnc/runtime.js';
 
 // Subscribes only to position, so console/ack frames don't touch the 3D scene.
 function MachinePositionTracker({ sceneRef }) {
@@ -21,6 +25,11 @@ function MachinePositionTracker({ sceneRef }) {
 
 function ProbeOverlay({ sceneRef }) {
   const probe = useProbe(probeStore);
+  const prefs = useViz().prefs;
+  useEffect(() => {
+    sceneRef.current?.setProbeColormap?.(prefs.colormap);
+    sceneRef.current?.setZLabels?.(prefs.showZLabels);
+  }, [prefs.colormap, prefs.showZLabels, sceneRef]);
   useEffect(() => {
     sceneRef.current?.setProbe(probe.vertices, probe.triangles);
   }, [probe.vertices, probe.triangles, sceneRef]);
@@ -33,14 +42,14 @@ function ProbeOverlay({ sceneRef }) {
 export default function VisualizerWidget() {
   const sceneRef = useRef(null);
   const v = useViz();
+  const workflow = useStoreSelector((s) => s.workflowState);
+  const busy = ['running', 'paused'].includes(workflow);
 
   const loadFile = async (file) => {
     const text = await file.text();
     const parsed = parseGcode(text);
     const job = { ...parsed, name: file.name, text };
     setViz({ job, selection: null });
-    sceneRef.current?.setJob(parsed);
-    sceneRef.current?.setRapids(parsed.rapidMoves);
   };
 
   const onDrop = (e) => {
@@ -83,28 +92,43 @@ export default function VisualizerWidget() {
         )}
         <span className="hint">shift+drag = region · ctrl/right-drag = pan · wheel = zoom</span>
         <span className="spacer" />
-        {job && (
-          <span className="view-buttons">
-            {['top', 'left', 'right', 'iso'].map((vw) => (
-              <button key={vw} onClick={() => sceneRef.current?.setView(vw)}>
-                {vw === 'iso' ? 'ISO' : vw[0].toUpperCase() + vw.slice(1)}
-              </button>
-            ))}
-          </span>
-        )}
+        <span className="view-buttons">
+          <InfoIcon label="Camera view" text={parameterHelp('visualizer', 'view')} />
+          {['top', 'left', 'right', 'iso'].map((vw) => (
+            <button key={vw} onClick={() => sceneRef.current?.setView(vw)}>
+              {vw === 'iso' ? 'ISO' : vw[0].toUpperCase() + vw.slice(1)}
+            </button>
+          ))}
+        </span>
         {job && (
           <>
             <button onClick={() => sceneRef.current?.showAll()}>Show All</button>
             <button onClick={() => onSelect(null)}>Clear selection</button>
           </>
         )}
+        {v.compensatedJob && (
+          <>
+            <span className="tag ok">Compensated</span>
+            <button disabled={busy} onClick={() => {
+              if (!['running', 'paused'].includes(store.getSnapshot().workflowState)) revertJobCompensation();
+            }}>Revert compensation</button>
+          </>
+        )}
         <FileButton onFile={loadFile} />
       </div>
+
+      <LayerChecklist />
 
       <ToolpathCanvas
         sceneRef={sceneRef}
         onSelect={onSelect}
-        onReady={(scene) => setViz({ scene })}
+        onReady={(scene) => {
+          if (viz.job) {
+            scene.setJob(viz.job);
+            scene.setRapids(viz.job.rapidMoves);
+          }
+          setViz({ scene });
+        }}
       />
 
       {/* live machine position → tool marker (restored after dock refactor) */}
@@ -126,6 +150,7 @@ export default function VisualizerWidget() {
               <div>
                 {selectedPath.segments.length} segments · depth {selectedPath.depth?.toFixed(3)} mm ·
                 feed {selectedPath.feed} mm/min · length {pathLength(selectedPath).toFixed(1)} mm
+                {selectedPath.cutWidth != null && ` · cut width ${selectedPath.cutWidth} mm`}
                 {v.selection && !v.selection.region && (
                   <span className="hint">
                     {' '}· segment {v.selection.segmentId} (source line {v.selection.sourceLine})

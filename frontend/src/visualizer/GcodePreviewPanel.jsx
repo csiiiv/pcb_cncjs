@@ -1,3 +1,5 @@
+import { ParameterLabel } from '../ui/InfoIcon.jsx';
+import { parameterHelp } from '../ui/parameterHelp.js';
 // Step-through G-code preview (brief §14: inspect cutting order; §20 traceability).
 // Selecting a line highlights its segment(s) in 3D and vice versa.
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -92,7 +94,7 @@ export default function GcodePreviewPanel({ job, selection, onSelectSegment }) {
             checked={followSelection}
             onChange={(e) => setFollowSelection(e.target.checked)}
           />
-          follow 3D selection
+          <ParameterLabel label="follow 3D selection" help={parameterHelp('gcode', 'followSelection')} />
         </label>
       </div>
       <div className="gcode-list" ref={listRef}>

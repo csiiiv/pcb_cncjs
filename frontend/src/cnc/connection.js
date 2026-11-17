@@ -1,6 +1,7 @@
 // CNCjs server connection: signin (JWT) + Socket.IO 2 client.
 // Same-origin via the Vite dev proxy — no CORS, no backend changes.
 import io from 'socket.io-client';
+import { connectionErrorMessage } from './errors.js';
 
 export const ConnectionState = Object.freeze({
   DISCONNECTED: 'disconnected',
@@ -16,6 +17,8 @@ export class CNCConnection {
     this.eventHandlers = {};
     this._connectedPort = null;
   }
+
+  #connecting = null;
 
   // The currently open machine port, mirrored from serialport:open/close events.
   // MachineCommands reads this to route 'command' emits to the right port.
@@ -63,31 +66,44 @@ export class CNCConnection {
 
   async connect() {
     if (this.socket?.connected) return;
+    if (this.#connecting) return this.#connecting; // dedupe concurrent callers (StrictMode double-mount)
 
-    this.#emitLocal('state', ConnectionState.CONNECTING);
+    this.#connecting = (async () => {
+      try {
+        this.#emitLocal('state', ConnectionState.CONNECTING);
+        await this.#signin();
+        this.socket = io(this.serverUrl || undefined, {
+          query: `token=${this.token}`,
+          transports: ['websocket']
+        });
 
-    await this.#signin();
+        this.socket.on('connect', () => {
+          this.#setConnectedPort(null); // fresh socket: port linkage must be re-established
+          this.#emitLocal('state', ConnectionState.CONNECTED);
+        });
+        this.socket.on('disconnect', () => {
+          this.#setConnectedPort(null);
+          this.#emitLocal('state', ConnectionState.DISCONNECTED);
+        });
+        this.socket.on('connect_error', (err) => this.#emitLocal('error', err));
 
-    this.socket = io(this.serverUrl || undefined, {
-      query: `token=${this.token}`,
-      transports: ['websocket']
-    });
-
-    this.socket.on('connect', () => {
-      this.#setConnectedPort(null); // fresh socket: port linkage must be re-established
-      this.#emitLocal('state', ConnectionState.CONNECTED);
-    });
-    this.socket.on('disconnect', () => this.#emitLocal('state', ConnectionState.DISCONNECTED));
-    this.socket.on('connect_error', (err) => this.#emitLocal('error', err));
-
-    // Server -> client events we care about (Phase 1: read-only)
-    const relay = (event) => (...args) => this.#emitLocal(event, ...args);
-    ['startup', 'error'].forEach((e) => this.socket.on(e, relay(e)));
-    ['serialport:list', 'serialport:open', 'serialport:close', 'serialport:error',
-      'serialport:read', 'serialport:write', 'controller:state', 'controller:settings', 'workflow:state',
-      'sender:status', 'feeder:status', 'autolevel:update', 'autolevel:complete'].forEach((e) =>
-      this.socket.on(e, relay(e))
-    );
+        // Server -> client events we care about (Phase 1: read-only)
+        const relay = (event) => (...args) => {
+          if (event === 'serialport:open') this.#setConnectedPort(args[0].port);
+          if (event === 'serialport:close' && args[0].port === this._connectedPort) this.#setConnectedPort(null);
+          this.#emitLocal(event, ...args);
+        };
+        ['startup', 'error'].forEach((e) => this.socket.on(e, relay(e)));
+        ['serialport:list', 'serialport:open', 'serialport:close', 'serialport:error',
+          'serialport:read', 'serialport:write', 'controller:state', 'controller:settings', 'workflow:state',
+          'sender:status', 'feeder:status', 'autolevel:update', 'autolevel:complete'].forEach((e) =>
+          this.socket.on(e, relay(e))
+        );
+      } finally {
+        this.#connecting = null;
+      }
+    })();
+    return this.#connecting;
   }
 
   disconnect() {
@@ -107,9 +123,9 @@ export class CNCConnection {
   // Server uses an ack callback for 'open'/'close' (unlike 'list' which emits serialport:list).
   openPort(port, { baudrate = 115200, controllerType = 'Grbl' } = {}) {
     return new Promise((resolve, reject) => {
-      if (!this.socket) return reject(new Error('not connected'));
+      if (!this.socket?.connected) return reject(new Error('Server is not connected'));
       this.socket.emit('open', port, { baudrate, controllerType }, (err) => {
-        if (err) reject(err);
+        if (err) reject(new Error(connectionErrorMessage(err, `Unable to open ${port}`)));
         else {
           this.#setConnectedPort(port);
           resolve();
@@ -120,9 +136,9 @@ export class CNCConnection {
 
   closePort(port) {
     return new Promise((resolve, reject) => {
-      if (!this.socket) return reject(new Error('not connected'));
+      if (!this.socket?.connected) return reject(new Error('Server is not connected'));
       this.socket.emit('close', port, (err) => {
-        if (err) reject(err);
+        if (err) reject(new Error(connectionErrorMessage(err, `Unable to close ${port}`)));
         else {
           if (this._connectedPort === port) this.#setConnectedPort(null);
           resolve();

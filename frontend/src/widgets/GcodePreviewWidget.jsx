@@ -1,3 +1,6 @@
+import { ParameterLabel } from '../ui/InfoIcon.jsx';
+import { parameterHelp } from '../ui/parameterHelp.js';
+import { useDefaultState } from '../settings/store.js';
 // Step-through G-code preview (job/selection via viz store).
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useViz } from '../visualizer/vizStore.js';
@@ -24,8 +27,8 @@ export default function GcodePreviewWidget() {
   const workflowState = useStoreSelector((s) => s.workflowState);
   const job = v.job;
   const [activeLine, setActiveLine] = useState(null);
-  const [followSelection, setFollowSelection] = useState(true);
-  const [followRun, setFollowRun] = useState(true);
+  const [followSelection, setFollowSelection] = useDefaultState('gcode', 'followSelection');
+  const [followRun, setFollowRun] = useDefaultState('gcode', 'followRun');
   const listRef = useRef(null);
 
   const onListClick = useCallback((e) => {
@@ -93,6 +96,11 @@ export default function GcodePreviewWidget() {
     const onKey = (e) => {
       if (e.key === 'Escape') { setActiveLine(null); v.scene?.setPreviewCursor(null); return; }
       if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+      // Never hijack arrows from text inputs, or while a modal owns the screen
+      // (its text fields need the caret keys).
+      const tag = e.target?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target?.isContentEditable) return;
+      if (document.querySelector('.modal-backdrop')) return;
       e.preventDefault();
       if (!geoLines.length) return;
       const idx = geoLines.findIndex((l) => l.lineNo === activeLine);
@@ -130,11 +138,11 @@ export default function GcodePreviewWidget() {
         )}
         <label className="hint">
           <input type="checkbox" checked={followRun} onChange={(e) => setFollowRun(e.target.checked)} />
-          follow run
+          <ParameterLabel label="follow run" help={parameterHelp('gcode', 'followRun')} />
         </label>
         <label className="hint">
           <input type="checkbox" checked={followSelection} onChange={(e) => setFollowSelection(e.target.checked)} />
-          follow 3D selection
+          <ParameterLabel label="follow 3D selection" help={parameterHelp('gcode', 'followSelection')} />
         </label>
       </div>
       <div className="gcode-list" ref={listRef} onClick={onListClick}>
