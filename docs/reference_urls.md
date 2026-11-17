@@ -5,7 +5,9 @@ This file collects the main upstream repositories, documentation, and source fil
 Use this together with `docs/project.md` (the project brief).
 
 > Note: the URLs below point at the upstream repositories. The actual fork
-> lives in `cncjs/` as a nested git checkout; when a section describes how
+> lives in `cncjs/` as a pinned Git submodule of
+> [csiiiv/cncjs, branch pcb-cnc](https://github.com/csiiiv/cncjs/tree/pcb-cnc).
+> When a section describes how
 > CNCjs "currently" works, check the local `cncjs/` sources first — the fork
 > adds CAM routes, autolevel points/test modes, per-ack `sender:status`,
 > serial open-failure cleanup, and error shaping.

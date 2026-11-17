@@ -10,42 +10,49 @@ loading and execution.
 ## Repository scope
 
 This repository contains the frontend, documentation, sample PCB files and
-development launcher. The backend lives in a **separate local Git checkout
-at `cncjs/`**, excluded by `.gitignore`. Cloning this repository does not
-download that backend or its modifications. There is no configured submodule
-or published backend fork URL here yet.
+development launcher. The modified backend is included as the **`cncjs/` Git
+submodule**, pointing at [csiiiv/cncjs](https://github.com/csiiiv/cncjs/tree/pcb-cnc).
+The parent repository pins its exact commit; the fork's `pcb-cnc` branch
+contains the PCB changes and `master` retains its upstream snapshot.
 
 The upstream CNCjs checkout alone does not include this project's CAM API,
 explicit-point autolevel support, sender progress changes or serial fixes.
-See [development setup](docs/development.md) for the required backend and the
-limits of a fresh clone.
+See [development setup](docs/development.md) for installation, submodule
+updates and contributing backend changes.
 
 ## Quick start
 
-Install the frontend dependencies:
+Clone both repositories:
 
 ```sh
-git clone https://github.com/csiiiv/pcb_cncjs.git
-cd pcb_cncjs/frontend
-npm ci
-npm run dev
+git clone --recurse-submodules https://github.com/csiiiv/pcb_cncjs.git
+cd pcb_cncjs
 ```
 
-Open <http://localhost:5173/>. The frontend can build and render without a
-backend; machine connection and CAM generation require the modified CNCjs
-server. The development server proxies `/api` and `/socket.io` to port 8000.
-
-On an existing workstation with the modified backend, its dependencies and
-production build already present, start both servers from the repository root:
+For an existing clone, run `git submodule update --init --recursive` first.
+Install and build the backend using its checked-in Yarn release:
 
 ```sh
+cd cncjs
+node .yarn/releases/yarn-3.3.1.cjs install --immutable
+node .yarn/releases/yarn-3.3.1.cjs build-prod
+cd ..
+```
+
+Install the frontend and start both servers from the repository root:
+
+```sh
+npm --prefix frontend ci
 ./dev.sh
 ```
 
 Use `./dev.sh --rebuild` after editing backend server modules. Override the
 CAM executable with `PCB2GCODE_BIN=/absolute/path/to/pcb2gcode ./dev.sh`;
 the launcher otherwise uses `$HOME/.local/bin/pcb2gcode`.
-The legacy CNCjs UI is at <http://localhost:8000/>. Ctrl+C stops both servers.
+Open <http://localhost:5173/> for the PCB interface. The legacy CNCjs UI is
+at <http://localhost:8000/>. Ctrl+C stops both servers. The launcher requires
+Bash and `ss`; CAM generation also requires a separately installed compatible
+pcb2gcode engine. See [development setup](docs/development.md) for details.
 
 ## Using the interface
 

@@ -1,6 +1,3 @@
-# CNCjs fork lives in its own git repo (tracks upstream + our backend changes)
-cncjs/
-
 # Node
 node_modules/
 dist/

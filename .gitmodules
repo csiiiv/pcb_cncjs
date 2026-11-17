@@ -1,0 +1,4 @@
+[submodule "cncjs"]
+	path = cncjs
+	url = https://github.com/csiiiv/cncjs.git
+	branch = pcb-cnc

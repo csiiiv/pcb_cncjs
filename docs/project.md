@@ -9,7 +9,7 @@
 
 ```text
 README.md               repository overview and quick start
-docs/development.md     setup, validation and separate-backend requirements
+docs/development.md     setup, validation and backend submodule workflow
 docs/project.md         this brief + per-phase status
 docs/auto_level.md      autolevel / probe-mesh design brief + status
 docs/cam.md             pcb2gcode CAM integration (Phase 5)
@@ -25,16 +25,17 @@ Feature docs are authoritative for their subsystems; this brief tracks the
 overall plan and phase status.
 
 The published outer repository contains the frontend, docs, samples and
-launcher. `cncjs/` is a separate, ignored local Git checkout; its modifications
-are not included when this repository is cloned or pushed. No published
-backend fork URL or submodule is configured yet. Backend-dependent entries
-below describe the local workstation implementation. See
-[development.md](development.md) for that boundary and setup requirements.
+launcher. `cncjs/` is a Git submodule pinned to the modified
+[csiiiv/cncjs fork](https://github.com/csiiiv/cncjs/tree/pcb-cnc). Clone with
+`--recurse-submodules` or initialize with `git submodule update --init --recursive`.
+Backend changes are committed/pushed in that fork first, then the parent
+records the new revision. See [development.md](development.md) for setup
+and the submodule workflow.
 
 ## Implementation status
 
 ```text
-Phase 0  Fork & environment          done    cncjs/ nested repo (tracks upstream) + frontend/
+Phase 0  Fork & environment          done    cncjs/ pinned fork submodule + frontend/
 Phase 1  Read-only state mirror      done    DRO (WPos primary), Status, Connection widgets
 Phase 2  Basic machine controls      done    unlock/reset, jog (+diagonals), zero X/Y/Z/XY/XYZ,
                                              spindle widget
@@ -69,7 +70,8 @@ Frontend layout and backend fork changes are listed in §39.
 
 Validation on 2026-11-17: all 17 frontend test files pass and `npm run build`
 succeeds with a large-bundle warning (Node.js 20.20.0, npm 10.8.2). This
-review did not run backend tests or a physical machining cycle. Commands are
+review also validated 4 backend suites (99 tests, including real pcb2gcode)
+and server transpilation. No physical machining cycle was run. Commands are
 in [development.md](development.md).
 
 ## 1. Project Goal
@@ -291,7 +293,7 @@ Realized layout (differs from the sketch above):
 
 ```text
 PCB-CNCJS/            outer repo: docs/, samples/, frontend/
-cncjs/                nested git repo tracking upstream cncjs + fork changes
+cncjs/                pinned Git submodule: csiiiv/cncjs, pcb-cnc branch
 frontend/             new PCB UI (Vite + React 19)
 ```
 
@@ -1690,11 +1692,12 @@ cncjs/src/server/
 └── services/cncengine/CNCEngine.js     # fork wiring
 ```
 
-`cncjs/` remains a separate Git repository for upstream integration. Its
-current checkout contains a local sender-progress commit and additional
-uncommitted backend changes. They are excluded from this outer repository;
-publishing it does not back up the backend. Rebuild server modules after
-backend changes (see [development.md](development.md)).
+`cncjs/` is a submodule backed by the published `csiiiv/cncjs` fork. The
+`pcb-cnc` branch includes sender-progress, CAM, probing and serial fixes.
+The original CNCjs remote is retained as `upstream` on the development
+workstation. Publish backend commits before committing the parent submodule
+reference. Rebuild server modules after backend changes (see
+[development.md](development.md)).
 
 ---
 

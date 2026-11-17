@@ -3,14 +3,16 @@
 Field notes for the two failure classes that look like "the app broke" but
 live outside it, plus the server-side close hardening this fork carries.
 
-The server fixes below live in the separate local `cncjs/` checkout. They
-are not included in a clone of the outer repository; see
+The server fixes below live in the pinned `cncjs/` submodule. Initialize it
+with `git submodule update --init --recursive`; see
 [development setup](development.md).
 
 ## Fresh clone: backend missing or CAM unavailable
 
-`./dev.sh` requires the separate modified CNCjs checkout, its dependencies
-and a production build. The outer repository excludes `cncjs/`. A missing
+`./dev.sh` requires the modified CNCjs submodule, its dependencies
+and a production build. Initialize it with
+`git submodule update --init --recursive`, then install/build as described in
+[development setup](development.md). A missing
 launcher or `/api/cam/status` returning 404 can indicate a missing/unmodified
 backend, or an older process that has not loaded rebuilt server modules.
 Frontend installation and build can still run independently.

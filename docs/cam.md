@@ -1,8 +1,9 @@
 # pcb2gcode integration — Phase 5
 
-The CAM routes and engine service described here live in the separate,
-ignored `cncjs/` backend checkout. They are not bundled in this repository.
-See [development setup](development.md) before configuring a fresh clone.
+The CAM routes and engine service described here live in the `cncjs/`
+submodule, pinned to the modified [backend fork](https://github.com/csiiiv/cncjs/tree/pcb-cnc).
+Clone with `--recurse-submodules` or run `git submodule update --init --recursive`.
+See [development setup](development.md) for installation and build steps.
 
 The **PCB CAM** dock widget imports front-copper Gerber, Excellon drill, and
 outline Gerber files through **Setup CAM**, a guided side modal. Import sources,

@@ -13,22 +13,57 @@ pcb_cncjs/                  this Git repository
 ├── frontend/               React 19 + Vite + Three.js
 ├── samples/                Gerber archive, extracted sources and G-code fixtures
 ├── ntp-test/               standalone local NTP experiment, not used by the app
-└── cncjs/                  separate, ignored Git checkout; absent from a clone
+└── cncjs/                  Git submodule pinned to the modified CNCjs fork
 ```
 
-The nested checkout tracks `https://github.com/cncjs/cncjs.git` as its
-upstream. Its local modifications include:
+The submodule's `origin` is `https://github.com/csiiiv/cncjs.git`. The PCB
+changes are published on its `pcb-cnc` branch; `.gitmodules` records that
+branch for explicit remote updates, while normal submodule initialization
+checks out the exact commit pinned by this repository. The modifications include:
 
 - CAM routes in `src/server/api/api.cam.js` and services in `src/server/cam/`.
 - GRBL explicit-point/test probing and work-coordinate probe results.
 - Sender progress events used for execution tracking.
 - Serial open/close cleanup and structured error handling.
 
-Some backend work is still uncommitted in that checkout. Committing or
-pushing the outer repository does not publish it. A runnable fresh-clone
-setup still needs a separately published backend fork and a documented
-revision. There is currently no fork URL or submodule to fetch automatically.
-Do not substitute upstream CNCjs and expect the custom features to work.
+The fork keeps CNCjs history. The existing workstation also has an `upstream`
+remote at `https://github.com/cncjs/cncjs.git`; new submodule clones only have
+`origin` unless you add `upstream` yourself. Do not substitute upstream CNCjs
+for the pinned fork and expect the custom features to work.
+
+## Clone and initialize
+
+```sh
+git clone --recurse-submodules https://github.com/csiiiv/pcb_cncjs.git
+cd pcb_cncjs
+```
+
+For an existing clone or after pulling a parent update:
+
+```sh
+git submodule update --init --recursive
+```
+
+A submodule normally has a detached HEAD at the recorded commit. This is
+expected for running/building the application. Initialization downloads the
+source, not dependencies, generated server/UI files or pcb2gcode.
+
+## Backend installation and first build
+
+Node.js 20.20.0 is the verified workstation version. Native serial dependencies
+may require a local compiler/toolchain. Use the checked-in Yarn release without
+installing Yarn globally, from the outer repository root:
+
+```sh
+cd cncjs
+node .yarn/releases/yarn-3.3.1.cjs install --immutable
+node .yarn/releases/yarn-3.3.1.cjs build-prod
+cd ..
+```
+
+The full build creates `dist/cncjs/server-cli.js`, the server and the legacy
+UI. Subsequent server-only edits can use `./dev.sh --rebuild`. The backend's
+[fork notes](../cncjs/PCB-CNC.md) describe its changes and checks.
 
 ## Frontend installation and checks
 
@@ -69,9 +104,8 @@ After changes to backend server modules, stop the stack while idle and run:
 
 This transpiles `cncjs/src/server` into `cncjs/dist/cncjs/server`, excluding
 test directories, before starting. It does not install dependencies or create
-the complete CNCjs distribution. Preparing a new backend checkout also needs
-its own dependency installation and full build; follow that checkout's build
-instructions once the modified fork is available.
+the complete CNCjs distribution. A fresh clone needs the dependency installation
+and full build above before using this server-only rebuild shortcut.
 
 To run the existing backend and frontend in separate terminals:
 
@@ -123,9 +157,42 @@ With the modified backend and its development dependencies installed:
 
 ```sh
 cd cncjs
-./node_modules/.bin/jest src/server/cam/__tests__ --runInBand --coverage=false
+PCB2GCODE_BIN="$HOME/.local/bin/pcb2gcode" ./node_modules/.bin/jest src/server/cam/__tests__ src/server/lib/__tests__/SerialConnection.test.js src/server/controllers/Grbl/__tests__/GrblController.test.js --runInBand --coverage=false '--modulePathIgnorePatterns=<rootDir>/(dist|output|build)/'
 ```
 
-These are separate from the outer repository's frontend checks. Some CAM
-tests invoke the engine when available. See [cam.md](cam.md) for the backend
-contract, limits and validation details.
+Validated on 2026-11-17: 4 suites, 99 tests passed, including real pcb2gcode
+generation. The server source also compiled successfully with Babel to a
+temporary output directory. These are separate from the frontend checks and
+do not exercise physical machinery. The engine test skips when pcb2gcode is
+unavailable. See [cam.md](cam.md) for the backend contract and limits.
+
+## Updating and contributing
+
+After pulling updates to the parent repository, synchronize the pinned backend:
+
+```sh
+git pull --ff-only
+git submodule update --init --recursive
+```
+
+Commit any local backend work before switching revisions. To develop on the
+fork's PCB branch, attach it explicitly and check its current state:
+
+```sh
+git -C cncjs switch pcb-cnc
+git -C cncjs status
+```
+
+Commit and push backend changes to `origin pcb-cnc` first. Then record the
+new revision in the parent repository:
+
+```sh
+git add cncjs
+git commit -m "Update CNCjs backend revision"
+git push origin main
+```
+
+The parent stores a commit reference, not the backend's files or uncommitted
+changes. `git submodule update --remote cncjs` deliberately advances to the
+fork branch's latest commit; review, build/test and commit that change before
+sharing it. Normal setup should use the pinned revision instead.

@@ -5,8 +5,9 @@ Build or substantially improve the application's **PCB autolevel / surface probi
 > Reviewed 2026-11-17. The subsystem lives in `frontend/src/probe/` plus the
 > Autolevel widget; backend support is in the `cncjs/` fork's `GrblController`.
 
-The backend is a separate ignored checkout and is not downloaded with this
-repository. See [development setup](development.md). Measured vertices are
+The modified backend is pinned by the `cncjs/` submodule; initialize it with
+`git submodule update --init --recursive`. See [development setup](development.md).
+Measured vertices are
 held in memory; save a heightmap before reloading. A saved workflow checklist
 does not restore the surface or verify that its physical reference is current.
 
